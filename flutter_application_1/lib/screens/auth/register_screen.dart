@@ -14,12 +14,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
+
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
   bool loading = false;
   final String rol = "estudiante";
 
-  // Validaciones de contraseña
+  // Error del nombre en tiempo real
+  String? _errorNombre;
+
+  // ─── Validaciones de nombre ───────────────────────────────
+  String? _validarNombre(String nombre) {
+    if (nombre.isEmpty) return null; // no mostrar error si está vacío aún
+
+    if (nombre.trim().isEmpty) {
+      return "El nombre no puede ser solo espacios";
+    }
+    if (nombre.trim().length < 3) {
+      return "El nombre debe tener al menos 3 caracteres";
+    }
+    if (nombre.trim().length > 50) {
+      return "El nombre no puede tener más de 50 caracteres";
+    }
+    if (!RegExp(r"^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+$").hasMatch(nombre.trim())) {
+      return "El nombre solo puede contener letras";
+    }
+    final partes = nombre.trim().split(RegExp(r'\s+'));
+    if (partes.length < 2 || partes.any((p) => p.isEmpty)) {
+      return "Ingresa tu nombre y apellido";
+    }
+    return null;
+  }
+
+  // ─── Validaciones de contraseña ───────────────────────────
   bool get tieneMayuscula => passwordController.text.contains(RegExp(r'[A-Z]'));
   bool get tieneMinuscula => passwordController.text.contains(RegExp(r'[a-z]'));
   bool get tieneNumero => passwordController.text.contains(RegExp(r'[0-9]'));
@@ -33,17 +60,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
       tieneEspecial &&
       tieneOchoCaracteres;
 
+  // ─── Registro ─────────────────────────────────────────────
   Future<void> register() async {
-    if (nombreController.text.isEmpty ||
-        emailController.text.isEmpty ||
-        passwordController.text.isEmpty ||
-        confirmPasswordController.text.isEmpty) {
-      _showSnack("Completa todos los campos");
+    // Validar nombre
+    final errorNombre = _validarNombre(nombreController.text);
+    if (nombreController.text.isEmpty || errorNombre != null) {
+      setState(
+          () => _errorNombre = errorNombre ?? "Ingresa tu nombre completo");
+      _showSnack(_errorNombre!);
+      return;
+    }
+
+    // Validar email
+    if (emailController.text.isEmpty) {
+      _showSnack("Ingresa tu correo electrónico");
+      return;
+    }
+
+    // Validar contraseña
+    if (passwordController.text.isEmpty) {
+      _showSnack("Ingresa una contraseña");
       return;
     }
 
     if (!passwordValida) {
       _showSnack("La contraseña no cumple los requisitos de seguridad");
+      return;
+    }
+
+    // Validar confirmación
+    if (confirmPasswordController.text.isEmpty) {
+      _showSnack("Confirma tu contraseña");
       return;
     }
 
@@ -94,26 +141,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  // ─── Widget requisito contraseña ──────────────────────────
   Widget _requisito(String texto, bool cumplido) {
-    return Row(
-      children: [
-        Icon(
-          cumplido ? Icons.check_circle : Icons.cancel,
-          size: 16,
-          color: cumplido ? Colors.green : Colors.red,
-        ),
-        const SizedBox(width: 6),
-        Text(
-          texto,
-          style: TextStyle(
-            fontSize: 12,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        children: [
+          Icon(
+            cumplido ? Icons.check_circle : Icons.cancel,
+            size: 16,
             color: cumplido ? Colors.green : Colors.red,
           ),
-        ),
-      ],
+          const SizedBox(width: 6),
+          Text(
+            texto,
+            style: TextStyle(
+              fontSize: 12,
+              color: cumplido ? Colors.green : Colors.red,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
+  // ─── Build ────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -131,6 +183,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
+                  // Header
                   const Text(
                     "SURUPUCYU",
                     style: TextStyle(
@@ -149,6 +202,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
+
+                  // Card
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
@@ -179,24 +234,69 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         const SizedBox(height: 20),
 
-                        // Nombre
-                        _buildTextField(
+                        // ── Campo Nombre ──────────────────
+                        TextField(
                           controller: nombreController,
-                          label: "Nombre completo",
-                          icon: Icons.person,
+                          keyboardType: TextInputType.name,
+                          textCapitalization: TextCapitalization.words,
+                          onChanged: (value) {
+                            setState(() {
+                              _errorNombre = _validarNombre(value);
+                            });
+                          },
+                          decoration: InputDecoration(
+                            labelText: "Nombre completo",
+                            hintText: "Ej: Ana López",
+                            prefixIcon: const Icon(Icons.person,
+                                color: Color(0xFFB71C1C)),
+                            errorText: _errorNombre,
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                  color: Color(0xFFB71C1C), width: 2),
+                            ),
+                            errorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: Colors.red, width: 1),
+                            ),
+                          ),
                         ),
+
+                        // Indicador nombre válido
+                        if (nombreController.text.isNotEmpty &&
+                            _errorNombre == null)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6, left: 4),
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle,
+                                    size: 14, color: Colors.green),
+                                SizedBox(width: 4),
+                                Text(
+                                  "Nombre válido",
+                                  style: TextStyle(
+                                      fontSize: 11, color: Colors.green),
+                                ),
+                              ],
+                            ),
+                          ),
+
                         const SizedBox(height: 14),
 
-                        // Email
+                        // ── Campo Email ───────────────────
                         _buildTextField(
                           controller: emailController,
                           label: "Correo electrónico",
+                          hint: "Ej: ana@gmail.com",
                           icon: Icons.email,
                           keyboard: TextInputType.emailAddress,
                         ),
                         const SizedBox(height: 14),
 
-                        // Password
+                        // ── Campo Contraseña ──────────────
                         _buildTextField(
                           controller: passwordController,
                           label: "Contraseña",
@@ -207,11 +307,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               () => _passwordVisible = !_passwordVisible),
                           onChanged: (_) => setState(() {}),
                         ),
-                        const SizedBox(height: 10),
 
-                        // Requisitos de contraseña
+                        // Requisitos contraseña
                         if (passwordController.text.isNotEmpty)
                           Container(
+                            margin: const EdgeInsets.only(top: 10),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: Colors.grey.shade50,
@@ -245,7 +345,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                         const SizedBox(height: 14),
 
-                        // Confirmar password
+                        // ── Confirmar Contraseña ──────────
                         _buildTextField(
                           controller: confirmPasswordController,
                           label: "Confirmar contraseña",
@@ -255,12 +355,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           onToggle: () => setState(() =>
                               _confirmPasswordVisible =
                                   !_confirmPasswordVisible),
+                          onChanged: (_) => setState(() {}),
                         ),
 
-                        // Indicador de coincidencia
+                        // Indicador coincidencia
                         if (confirmPasswordController.text.isNotEmpty)
                           Padding(
-                            padding: const EdgeInsets.only(top: 6),
+                            padding: const EdgeInsets.only(top: 6, left: 4),
                             child: Row(
                               children: [
                                 Icon(
@@ -268,20 +369,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                           confirmPasswordController.text
                                       ? Icons.check_circle
                                       : Icons.cancel,
-                                  size: 16,
+                                  size: 14,
                                   color: passwordController.text ==
                                           confirmPasswordController.text
                                       ? Colors.green
                                       : Colors.red,
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(width: 4),
                                 Text(
                                   passwordController.text ==
                                           confirmPasswordController.text
                                       ? "Las contraseñas coinciden"
                                       : "Las contraseñas no coinciden",
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 11,
                                     color: passwordController.text ==
                                             confirmPasswordController.text
                                         ? Colors.green
@@ -292,8 +393,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                           ),
 
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 24),
 
+                        // ── Botón Registrar ───────────────
                         SizedBox(
                           width: double.infinity,
                           height: 50,
@@ -320,7 +422,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 16),
+
+                  // Link a login
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -347,10 +452,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  // ─── TextField reutilizable ───────────────────────────────
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
     required IconData icon,
+    String hint = "",
     bool isPassword = false,
     bool visible = false,
     VoidCallback? onToggle,
@@ -364,6 +471,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
+        hintText: hint,
+        hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
         prefixIcon: Icon(icon, color: const Color(0xFFB71C1C)),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         focusedBorder: OutlineInputBorder(

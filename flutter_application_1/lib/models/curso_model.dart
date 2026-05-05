@@ -4,6 +4,8 @@ class CursoModel {
   final String codigoAcceso;
   final String docenteUid;
   final String nivel;
+  final String paralelo;
+  final String anio;
   final bool activo;
   final DateTime fechaCreacion;
 
@@ -13,6 +15,8 @@ class CursoModel {
     required this.codigoAcceso,
     required this.docenteUid,
     required this.nivel,
+    required this.paralelo,
+    required this.anio,
     required this.activo,
     required this.fechaCreacion,
   });
@@ -24,6 +28,8 @@ class CursoModel {
       codigoAcceso: data['codigo_acceso'] ?? '',
       docenteUid: data['docente_uid'] ?? '',
       nivel: data['nivel'] ?? 'A1',
+      paralelo: data['paralelo'] ?? '',
+      anio: data['año'] ?? '',
       activo: data['activo'] ?? true,
       fechaCreacion: data['fecha_creacion']?.toDate() ?? DateTime.now(),
     );
@@ -35,6 +41,8 @@ class CursoModel {
       'codigo_acceso': codigoAcceso,
       'docente_uid': docenteUid,
       'nivel': nivel,
+      'paralelo': paralelo,
+      'año': anio,
       'activo': activo,
       'fecha_creacion': fechaCreacion,
     };

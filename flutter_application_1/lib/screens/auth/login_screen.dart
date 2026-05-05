@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/services/auth_service.dart';
+import 'package:flutter_application_1/widgets/custom_snackbar.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import '../estudiante/home_estudiante.dart';
@@ -22,9 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> login() async {
     if (emailController.text.isEmpty || passwordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Completa todos los campos")),
-      );
+      CustomSnackbar.warning(context, "Completa todos los campos");
       return;
     }
 
@@ -48,12 +47,11 @@ class _LoginScreenState extends State<LoginScreen> {
             context, MaterialPageRoute(builder: (_) => const HomeDocente()));
       } else {
         Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (_) => const HomeEstudiante()));
+            context,
+            MaterialPageRoute(builder: (_) => const HomeEstudiante()));
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'])),
-      );
+      CustomSnackbar.error(context, result['message']);
     }
   }
 
@@ -65,10 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF1A237E),
-              Color(0xFF283593),
-            ],
+            colors: [Color(0xFF1A237E), Color(0xFF283593)],
           ),
         ),
         child: SafeArea(
@@ -77,7 +72,6 @@ class _LoginScreenState extends State<LoginScreen> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  // Logo pequeño
                   Container(
                     width: 80,
                     height: 80,
@@ -105,9 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
                   const Text(
                     "SURUPUCYU",
                     style: TextStyle(
@@ -117,7 +109,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       letterSpacing: 3,
                     ),
                   ),
-
                   const Text(
                     "SpeakApp",
                     style: TextStyle(
@@ -127,10 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       letterSpacing: 2,
                     ),
                   ),
-
                   const SizedBox(height: 30),
-
-                  // Card de login
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
@@ -157,14 +145,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const Text(
                           "Ingresa tus credenciales para continuar",
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey),
                         ),
                         const SizedBox(height: 24),
-
-                        // Email
                         TextField(
                           controller: emailController,
                           keyboardType: TextInputType.emailAddress,
@@ -173,8 +157,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             prefixIcon: const Icon(Icons.email,
                                 color: Color(0xFFB71C1C)),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                                borderRadius: BorderRadius.circular(12)),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: const BorderSide(
@@ -182,10 +165,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 16),
-
-                        // Password
                         TextField(
                           controller: passwordController,
                           obscureText: obscurePassword,
@@ -194,8 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             prefixIcon: const Icon(Icons.lock,
                                 color: Color(0xFFB71C1C)),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                                borderRadius: BorderRadius.circular(12)),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: const BorderSide(
@@ -209,29 +188,28 @@ class _LoginScreenState extends State<LoginScreen> {
                                 color: const Color(0xFF1A237E),
                               ),
                               onPressed: () => setState(
-                                  () => obscurePassword = !obscurePassword),
+                                  () =>
+                                      obscurePassword = !obscurePassword),
                             ),
                           ),
                         ),
-
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
                             onPressed: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) => const ForgotPasswordScreen()),
+                                  builder: (_) =>
+                                      const ForgotPasswordScreen()),
                             ),
                             child: const Text(
                               "¿Olvidaste tu contraseña?",
-                              style: TextStyle(color: Color(0xFFB71C1C)),
+                              style:
+                                  TextStyle(color: Color(0xFFB71C1C)),
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 8),
-
-                        // Botón login
                         SizedBox(
                           width: double.infinity,
                           height: 50,
@@ -258,17 +236,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 20),
-
-                  // Registro
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text(
-                        "¿No tienes cuenta?",
-                        style: TextStyle(color: Colors.white70),
-                      ),
+                      const Text("¿No tienes cuenta?",
+                          style: TextStyle(color: Colors.white70)),
                       TextButton(
                         onPressed: () => Navigator.push(
                           context,
@@ -301,7 +274,6 @@ class _MontanhaPainter extends CustomPainter {
     final paint = Paint()
       ..color = const Color(0xFF1A237E)
       ..style = PaintingStyle.fill;
-
     final path = Path();
     path.moveTo(0, size.height);
     path.lineTo(size.width * 0.35, 0);
@@ -310,7 +282,6 @@ class _MontanhaPainter extends CustomPainter {
     path.lineTo(size.width, size.height);
     path.close();
     canvas.drawPath(path, paint);
-
     final snowPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
