@@ -1,14 +1,16 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../widgets/virtual_assistant_avatar.dart';
-import '../../services/audio_service.dart';
 import '../../repositories/audio_repository.dart';
 import '../../services/ia_service.dart';
+import '../../services/analisis_service.dart';
+import '../../repositories/analisis_repository.dart';
+import '../../services/pronunciacion_service.dart';
+import '../../repositories/pronunciacion_repository.dart';
 
 class AsistenteVirtualScreen extends StatefulWidget {
   final String cursoId;
@@ -24,39 +26,107 @@ class AsistenteVirtualScreen extends StatefulWidget {
   State<AsistenteVirtualScreen> createState() => _AsistenteVirtualScreenState();
 }
 
-class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen> {
+class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
+    with SingleTickerProviderStateMixin {
   final stt.SpeechToText _speech = stt.SpeechToText();
   final FlutterTts _tts = FlutterTts();
 
-  final AudioService _audioService = AudioService();
   final AudioRepository _audioRepository = AudioRepository();
   final IAService _iaService = IAService();
+  final AnalisisService _analisisService = AnalisisService();
+  final AnalisisRepository _analisisRepository = AnalisisRepository();
+  final PronunciacionService _pronunciacionService = PronunciacionService();
+  final PronunciacionRepository _pronunciacionRepository =
+      PronunciacionRepository();
+
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
   bool iniciado = false;
   bool escuchando = false;
   bool guardando = false;
 
   String textoUsuario = "";
-  String respuestaAsistente =
-      "Press start and speak in English with the assistant.";
+  String respuestaAsistente = "";
   String estadoMicrofono = "Micrófono detenido";
+
   String idiomaActual = "en_US";
   String nombreIdioma = "English";
+  String nombreUsuario = "estudiante";
+  bool procesandoRespuesta = false;
 
-  String? rutaAudio;
+  List<String> historialUsuario = [];
+  List<String> historialAsistente = [];
+  List<String> respuestasIds = [];
+  String? interaccionId;
 
   @override
   void initState() {
     super.initState();
     _configurarVoz();
+    _cargarNombreUsuario();
+
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(
+      begin: 0.94,
+      end: 1.08,
+    ).animate(
+      CurvedAnimation(
+        parent: _pulseController,
+        curve: Curves.easeInOut,
+      ),
+    );
+  }
+
+  Future<void> _cargarNombreUsuario() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(user.uid)
+          .get();
+
+      if (doc.exists && doc.data()?['nombre'] != null) {
+        setState(() {
+          nombreUsuario = doc.data()!['nombre'].toString().split(" ").first;
+        });
+        return;
+      }
+
+      final query = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .where('email', isEqualTo: user.email)
+          .limit(1)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        setState(() {
+          nombreUsuario =
+              query.docs.first.data()['nombre'].toString().split(" ").first;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error cargando nombre: $e");
+    }
   }
 
   Future<void> _configurarVoz() async {
     await _tts.setLanguage("en-US");
     await _tts.setSpeechRate(0.45);
     await _tts.setPitch(1.0);
+    await _tts.awaitSpeakCompletion(true);
   }
 
   Future<void> iniciar() async {
+    if (iniciado || guardando) return;
+
     final disponible = await _speech.initialize(
       onStatus: (status) {
         debugPrint("STATUS SPEECH: $status");
@@ -64,19 +134,10 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen> {
       onError: (error) {
         debugPrint("ERROR SPEECH: ${error.errorMsg}");
 
-        if (error.errorMsg == 'error_speech_timeout' ||
-            error.errorMsg == 'error_no_match') {
-          setState(() {
-            escuchando = false;
-            estadoMicrofono = "No se detectó voz. Presiona continuar.";
-          });
-          return;
-        }
-
-        _mostrarMensaje(
-          "Error de micrófono: ${error.errorMsg}",
-          Colors.red,
-        );
+        setState(() {
+          escuchando = false;
+          estadoMicrofono = "No se detectó voz. Intenta nuevamente.";
+        });
       },
     );
 
@@ -88,112 +149,161 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen> {
       return;
     }
 
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
+
+    interaccionId = await _audioRepository.crearInteraccion(
+      estudianteUid: uid,
+      cursoId: widget.cursoId,
+    );
+
     setState(() {
       iniciado = true;
       escuchando = true;
+      procesandoRespuesta = false;
       textoUsuario = "";
-      respuestaAsistente = "Listening...";
-      estadoMicrofono = idiomaActual == "en_US"
-          ? "Habla ahora en inglés"
-          : "Habla ahora en español";
+      respuestaAsistente = "";
+      historialUsuario.clear();
+      historialAsistente.clear();
+      respuestasIds.clear();
+      estadoMicrofono = "Habla con el asistente";
     });
 
+    await _iniciarEscuchaContinua();
+  }
+
+  Future<void> _iniciarEscuchaContinua() async {
+    if (!iniciado || guardando || procesandoRespuesta) return;
+
     await _speech.listen(
-      localeId: idiomaActual,
       listenMode: stt.ListenMode.dictation,
       listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 8),
+      pauseFor: const Duration(seconds: 6),
       partialResults: true,
       cancelOnError: false,
-      onResult: (result) async {
-        setState(() {
-          textoUsuario = result.recognizedWords;
-        });
-
-        if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
-          setState(() {
-            respuestaAsistente = "Thinking...";
-            estadoMicrofono = "Procesando respuesta...";
-            escuchando = false;
-          });
-
-          final respuesta = await _iaService.enviarMensaje(
-            result.recognizedWords,
-          );
-
-          setState(() {
-            respuestaAsistente = respuesta;
-            estadoMicrofono = "Respuesta generada";
-          });
-
-          await _tts.speak(respuesta);
-        }
-      },
+      onResult: _procesarResultadoVoz,
     );
   }
 
-  Future<void> pausar() async {
-    await _speech.stop();
+  Future<void> _procesarResultadoVoz(result) async {
+    final textoDetectado = result.recognizedWords.trim();
+
+    setState(() {
+      textoUsuario = textoDetectado;
+    });
+
+    if (!result.finalResult) return;
+
+    if (textoDetectado.isEmpty) {
+      setState(() {
+        escuchando = false;
+        estadoMicrofono = "No se detectó voz";
+      });
+
+      if (iniciado) {
+        await Future.delayed(const Duration(milliseconds: 700));
+        setState(() {
+          escuchando = true;
+          estadoMicrofono = "Habla con el asistente";
+        });
+        await _iniciarEscuchaContinua();
+      }
+
+      return;
+    }
 
     setState(() {
       escuchando = false;
-      estadoMicrofono = "Interacción pausada";
-    });
-  }
-
-  Future<void> continuar() async {
-    if (!iniciado) return;
-
-    setState(() {
-      textoUsuario = "";
-      respuestaAsistente = "Listening...";
-      escuchando = true;
-      estadoMicrofono = idiomaActual == "en_US"
-          ? "Habla ahora en inglés"
-          : "Habla ahora en español";
+      procesandoRespuesta = true;
+      estadoMicrofono = "Procesando respuesta...";
     });
 
     await _speech.stop();
 
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    await _speech.listen(
-      localeId: idiomaActual,
-      listenMode: stt.ListenMode.dictation,
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 8),
-      partialResults: true,
-      cancelOnError: false,
-      onResult: (result) async {
-        setState(() {
-          textoUsuario = result.recognizedWords;
-        });
-
-        if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
-          setState(() {
-            respuestaAsistente = "Thinking...";
-            estadoMicrofono = "Procesando respuesta...";
-            escuchando = false;
-          });
-
-          final respuesta = await _iaService.enviarMensaje(
-            result.recognizedWords,
-          );
-
-          setState(() {
-            respuestaAsistente = respuesta;
-            estadoMicrofono = "Respuesta generada";
-          });
-
-          await _tts.speak(respuesta);
-        }
-      },
+    final respuesta = await _iaService.enviarMensaje(
+      textoDetectado,
+      historialUsuario: historialUsuario,
+      historialAsistente: historialAsistente,
     );
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
+
+    String textoLower = textoDetectado.toLowerCase();
+
+    String idiomaDetectado = textoLower.contains("hola") ||
+            textoLower.contains("gracias") ||
+            textoLower.contains("buenos") ||
+            textoLower.contains("adiós") ||
+            textoDetectado.contains(RegExp(r'[áéíóúñ¿¡]'))
+        ? "es"
+        : "en";
+
+    if (interaccionId != null) {
+      final respuestaId = await _audioRepository.guardarRespuesta(
+        interaccionId: interaccionId!,
+        estudianteUid: uid,
+        cursoId: widget.cursoId,
+        textoUsuario: textoDetectado,
+        respuestaAsistente: respuesta,
+        audioUrl: "",
+        idiomaDetectado: idiomaDetectado,
+      );
+
+      respuestasIds.add(respuestaId);
+    }
+
+    historialUsuario.add(textoDetectado);
+    historialAsistente.add(respuesta);
+
+    setState(() {
+      respuestaAsistente = respuesta;
+      estadoMicrofono = "Respuesta generada";
+    });
+
+    final tieneEspanol = RegExp(
+      r'[áéíóúñ¿¡]|hola|gracias|español|entiendo|claro|pregunta',
+      caseSensitive: false,
+    ).hasMatch(respuesta);
+
+    if (tieneEspanol) {
+      await _tts.setLanguage("es-ES");
+    } else {
+      await _tts.setLanguage("en-US");
+    }
+    await _tts.speak(respuesta);
+
+    setState(() {
+      procesandoRespuesta = false;
+    });
+
+    if (iniciado && !guardando) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      setState(() {
+        escuchando = true;
+        estadoMicrofono = "Habla con el asistente";
+      });
+      await _iniciarEscuchaContinua();
+    }
+  }
+
+  Future<void> salirSinGuardar() async {
+    await _speech.stop();
+    await _tts.stop();
+
+    setState(() {
+      iniciado = false;
+      escuchando = false;
+      interaccionId = null;
+      procesandoRespuesta = false;
+    });
+
+    if (mounted) {
+      Navigator.pop(context);
+    }
   }
 
   Future<void> terminar() async {
     setState(() {
       guardando = true;
+      escuchando = false;
       estadoMicrofono = "Finalizando interacción...";
     });
 
@@ -201,28 +311,128 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen> {
       await _speech.stop();
       await _tts.stop();
 
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
+      if (historialUsuario.isNotEmpty &&
+          respuestasIds.isNotEmpty &&
+          interaccionId != null) {
+        final textoCompleto = historialUsuario.join(". ");
 
-      await _audioRepository.guardarRespuesta(
-        estudianteUid: uid,
-        textoUsuario:
-            textoUsuario.isEmpty ? "Sin texto detectado" : textoUsuario,
-        respuestaAsistente: respuestaAsistente,
-        audioUrl: "",
-      );
+        final resultado = await _analisisService.analizarTexto(
+          textoCompleto,
+        );
+
+        await _analisisRepository.guardarAnalisis(
+          respuestaId: respuestasIds.last,
+          interaccionId: interaccionId!,
+          estudianteUid: FirebaseAuth.instance.currentUser?.uid ?? "sin_uid",
+          cursoId: widget.cursoId,
+          textoOriginal: textoCompleto,
+          resultado: resultado,
+        );
+
+        await _analisisRepository.guardarFeedback(
+          interaccionId: interaccionId!,
+          estudianteUid: FirebaseAuth.instance.currentUser?.uid ?? "sin_uid",
+          cursoId: widget.cursoId,
+          comentario: resultado["comentario"] ?? "",
+          sugerencias: resultado["sugerencias"] ?? [],
+          puntosFuertes: resultado["puntos_fuertes"] ?? [],
+        );
+        final textoReferencia = resultado["texto_corregido"] ?? textoCompleto;
+
+        final resultadoPronunciacion =
+            await _pronunciacionService.analizarPronunciacion(
+          textoReconocido: textoCompleto,
+          textoReferencia: textoReferencia,
+        );
+
+        await _pronunciacionRepository.guardarPronunciacion(
+          interaccionId: interaccionId!,
+          estudianteUid: FirebaseAuth.instance.currentUser?.uid ?? "sin_uid",
+          cursoId: widget.cursoId,
+          textoReconocido: textoCompleto,
+          textoReferencia: textoReferencia,
+          resultado: resultadoPronunciacion,
+        );
+      }
+
+      if (interaccionId != null) {
+        await _audioRepository.finalizarInteraccion(
+          interaccionId: interaccionId!,
+        );
+      }
 
       setState(() {
         iniciado = false;
         escuchando = false;
+        procesandoRespuesta = false;
         guardando = false;
+        interaccionId = null;
         estadoMicrofono = "Interacción finalizada";
-        respuestaAsistente = "Interaction finished.";
+        respuestaAsistente = "";
+        respuestasIds.clear();
       });
 
-      _mostrarMensaje(
-        "Interacción finalizada correctamente",
-        Colors.green,
-      );
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            title: const Text(
+              "Retroalimentación generada",
+              style: TextStyle(
+                color: Color(0xFF1A237E),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: const Text(
+              "Tu interacción fue guardada correctamente. Puedes revisar tu retroalimentación escrita u oral.",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+
+                  Navigator.of(this.context).pop();
+                },
+                child: const Text("Cerrar"),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A237E),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+
+                  Navigator.of(this.context).pop(
+                    "ver_retro_escrita",
+                  );
+                },
+                icon: const Icon(Icons.edit_note),
+                label: const Text("Escrita"),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFB71C1C),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+
+                  Navigator.of(this.context).pop(
+                    "ver_retro_oral",
+                  );
+                },
+                icon: const Icon(Icons.record_voice_over),
+                label: const Text("Oral"),
+              ),
+            ],
+          ),
+        );
+      }
     } catch (e) {
       setState(() {
         guardando = false;
@@ -236,10 +446,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen> {
     }
   }
 
-  void _mostrarMensaje(
-    String mensaje,
-    Color color,
-  ) {
+  void _mostrarMensaje(String mensaje, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(mensaje),
@@ -252,259 +459,180 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen> {
   void dispose() {
     _speech.stop();
     _tts.stop();
+    _pulseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final estado = !iniciado
-        ? "Presiona iniciar para comenzar"
-        : escuchando
-            ? "Habla en inglés, el asistente te escucha"
-            : estadoMicrofono;
-
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1A237E),
-        foregroundColor: Colors.white,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Asistente virtual",
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              widget.nombreCurso,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.white70,
-              ),
-            ),
-          ],
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF1A237E),
+              Color(0xFF253A9B),
+              Color(0xFFEFF3FF),
+            ],
+          ),
         ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            const VirtualAssistantAvatar(),
-            const SizedBox(height: 22),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(
-                      0.06,
-                    ),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
-                ],
-              ),
-              child: Column(
-                children: [
-                  const Text(
-                    "Practice your speaking",
-                    style: TextStyle(
-                      color: Color(0xFF1A237E),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    estado,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: escuchando ? Colors.red : Colors.grey,
-                      fontSize: 13,
-                      fontWeight:
-                          escuchando ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ChoiceChip(
-                        label: const Text("🇺🇸 English"),
-                        selected: idiomaActual == "en_US",
-                        onSelected: escuchando
-                            ? null
-                            : (selected) {
-                                setState(() {
-                                  idiomaActual = "en_US";
-                                  nombreIdioma = "English";
-                                });
-                              },
-                      ),
-                      const SizedBox(width: 10),
-                      ChoiceChip(
-                        label: const Text("🇪🇸 Español"),
-                        selected: idiomaActual == "es_ES",
-                        onSelected: escuchando
-                            ? null
-                            : (selected) {
-                                setState(() {
-                                  idiomaActual = "es_ES";
-                                  nombreIdioma = "Español";
-                                });
-                              },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    "Idioma de escucha: $nombreIdioma",
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Icon(
-                    escuchando ? Icons.mic : Icons.mic_none,
-                    size: 55,
-                    color: escuchando ? Colors.red : const Color(0xFF1A237E),
-                  ),
-                  const SizedBox(height: 18),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(
-                        0xFF1A237E,
-                      ).withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: const Color(0xFF1A237E),
-                      ),
-                    ),
-                    child: Text(
-                      "Tú dijiste: ${textoUsuario.isEmpty ? '...' : textoUsuario}",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1A237E),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.grey.shade300,
-                      ),
-                    ),
-                    child: Text(
-                      "Asistente: $respuestaAsistente",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+            child: Column(
               children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: iniciado || guardando ? null : iniciar,
-                    icon: const Icon(
-                      Icons.play_arrow,
-                    ),
-                    label: const Text("Iniciar"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1A237E),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          14,
-                        ),
-                      ),
-                    ),
+                const SizedBox(height: 24),
+                Text(
+                  "Tu asistente virtual",
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 16,
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: iniciado && !guardando
-                        ? escuchando
-                            ? pausar
-                            : continuar
-                        : null,
-                    icon: Icon(
-                      escuchando ? Icons.pause : Icons.play_circle,
-                    ),
-                    label: Text(
-                      escuchando ? "Pausar" : "Continuar",
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF9A825),
-                      foregroundColor: Colors.black87,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 14,
+                const Spacer(),
+                AnimatedBuilder(
+                  animation: _pulseAnimation,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: escuchando ? _pulseAnimation.value : 1,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: 235,
+                            height: 235,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.08),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: escuchando
+                                      ? const Color(0xFF64B5F6).withOpacity(0.8)
+                                      : const Color(0xFF1A237E)
+                                          .withOpacity(0.5),
+                                  blurRadius: escuchando ? 55 : 35,
+                                  spreadRadius: escuchando ? 8 : 3,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            width: 205,
+                            height: 205,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: escuchando
+                                    ? const Color(0xFF64B5F6)
+                                    : Colors.white.withOpacity(0.35),
+                                width: 3,
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 145,
+                            height: 145,
+                            child: const VirtualAssistantAvatar(),
+                          ),
+                        ],
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          14,
-                        ),
-                      ),
-                    ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 30),
+                Text(
+                  "¡Pregunta lo que quieras, $nombreUsuario!",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    height: 1.15,
+                    fontWeight: FontWeight.w600,
                   ),
+                ),
+                const SizedBox(height: 10),
+                const Spacer(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _botonCircular(
+                      icon: Icons.close,
+                      label: "Salir",
+                      color: const Color(0xFF757575),
+                      onTap: guardando ? null : salirSinGuardar,
+                    ),
+                    _botonCircular(
+                      icon: Icons.mic,
+                      label: "",
+                      color: const Color(0xFF1A237E),
+                      onTap: iniciado || guardando ? null : iniciar,
+                    ),
+                    _botonCircular(
+                      icon: guardando ? Icons.hourglass_bottom : Icons.stop,
+                      label: guardando ? "Guardando" : "Finalizar",
+                      color: const Color(0xFFB71C1C),
+                      onTap: iniciado && !guardando ? terminar : null,
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: iniciado && !guardando ? terminar : null,
-              icon: guardando
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.stop),
-              label: Text(
-                guardando ? "Guardando..." : "Terminar interacción",
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFB71C1C),
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _botonCircular({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    final activo = onTap != null;
+
+    return Column(
+      children: [
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(40),
+          child: Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(
+              color: activo ? color : Colors.grey.shade500,
+              shape: BoxShape.circle,
+              boxShadow: activo
+                  ? [
+                      BoxShadow(
+                        color: color.withOpacity(0.45),
+                        blurRadius: 18,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : [],
+            ),
+            child: Icon(
+              icon,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: activo ? const Color(0xFF1A237E) : Colors.grey,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

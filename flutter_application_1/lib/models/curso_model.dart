@@ -29,7 +29,7 @@ class CursoModel {
       docenteUid: data['docente_uid'] ?? '',
       nivel: data['nivel'] ?? 'A1',
       paralelo: data['paralelo'] ?? '',
-      anio: data['año'] ?? '',
+      anio: data['anio'] ?? '',
       activo: data['activo'] ?? true,
       fechaCreacion: data['fecha_creacion']?.toDate() ?? DateTime.now(),
     );
@@ -42,7 +42,7 @@ class CursoModel {
       'docente_uid': docenteUid,
       'nivel': nivel,
       'paralelo': paralelo,
-      'año': anio,
+      'anio': anio,
       'activo': activo,
       'fecha_creacion': fechaCreacion,
     };

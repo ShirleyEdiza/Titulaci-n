@@ -5,6 +5,8 @@ import '../auth/login_screen.dart';
 import 'ingreso_codigo_screen.dart';
 import 'participantes_screen.dart';
 import 'asistente_virtual_screen.dart';
+import 'retroalimentacion_screen.dart';
+import 'retroalimentacion_oral_screen.dart';
 
 class HomeEstudiante extends StatefulWidget {
   const HomeEstudiante({super.key});
@@ -17,6 +19,7 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
   String nombreUsuario = "";
   String uid = "";
   int _selectedIndex = 0;
+  int _retroSeleccionada = 0; // 0 escrita, 1 oral
 
   @override
   void initState() {
@@ -444,8 +447,8 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
                     ),
                   ),
                   ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
+                    onPressed: () async {
+                      final resultado = await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => AsistenteVirtualScreen(
@@ -454,6 +457,20 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
                           ),
                         ),
                       );
+
+                      if (resultado == "ver_retro_escrita") {
+                        setState(() {
+                          _selectedIndex = 2;
+                          _retroSeleccionada = 0;
+                        });
+                      }
+
+                      if (resultado == "ver_retro_oral") {
+                        setState(() {
+                          _selectedIndex = 2;
+                          _retroSeleccionada = 1;
+                        });
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFF9A825),
@@ -649,116 +666,233 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Retroalimentación",
-              style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A237E))),
-          const SizedBox(height: 16),
-
-          // Retroalimentación escrita
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4)),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1A237E).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.edit_note,
-                          color: Color(0xFF1A237E), size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    const Text("Retroalimentación escrita",
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            color: Color(0xFF1A237E))),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  "Retroalimentación de tu interacción con el asistente virtual acerca de gramática",
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                _buildEmptyState(
-                  icon: Icons.article_outlined,
-                  titulo: "Sin sesiones aún",
-                  subtitulo:
-                      "Completa una conversación con el asistente para ver tu retroalimentación",
-                ),
-              ],
+          const Text(
+            "Retroalimentación",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1A237E),
             ),
           ),
-
           const SizedBox(height: 16),
-
-          // Retroalimentación oral
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4)),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFB71C1C).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.record_voice_over,
-                          color: Color(0xFFB71C1C), size: 22),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _retroSeleccionada = 0;
+                    });
+                  },
+                  icon: const Icon(Icons.edit_note),
+                  label: const Text("Escrita"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _retroSeleccionada == 0
+                        ? const Color(0xFF1A237E)
+                        : Colors.grey.shade300,
+                    foregroundColor:
+                        _retroSeleccionada == 0 ? Colors.white : Colors.black87,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(width: 12),
-                    const Text("Retroalimentación oral",
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            color: Color(0xFFB71C1C))),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                const Text(
-                  "Se muestra la correcta pronunciación de las palabras",
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _retroSeleccionada = 1;
+                    });
+                  },
+                  icon: const Icon(Icons.record_voice_over),
+                  label: const Text("Oral"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _retroSeleccionada == 1
+                        ? const Color(0xFFB71C1C)
+                        : Colors.grey.shade300,
+                    foregroundColor:
+                        _retroSeleccionada == 1 ? Colors.white : Colors.black87,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _buildEmptyState(
-                  icon: Icons.mic_none,
-                  titulo: "Sin sesiones aún",
-                  subtitulo:
-                      "Completa una conversación para ver tu retroalimentación de pronunciación",
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_retroSeleccionada == 0)
+            _buildRetroEscrita()
+          else
+            _buildRetroOral(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRetroEscrita() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A237E).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-              ],
+                child: const Icon(
+                  Icons.edit_note,
+                  color: Color(0xFF1A237E),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                "Retroalimentación escrita",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: Color(0xFF1A237E),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            "Retroalimentación gramatical de tu interacción con el asistente virtual.",
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 500,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('matriculas')
+                  .where('estudiante_uid', isEqualTo: uid)
+                  .where('activo', isEqualTo: true)
+                  .limit(1)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return _buildEmptyState(
+                    icon: Icons.article_outlined,
+                    titulo: "Sin sesiones aún",
+                    subtitulo:
+                        "Completa una conversación con el asistente para ver tu retroalimentación.",
+                  );
+                }
+
+                final matricula =
+                    snapshot.data!.docs.first.data() as Map<String, dynamic>;
+
+                final cursoId = matricula['curso_id'] ?? '';
+
+                return RetroalimentacionScreen(
+                  cursoId: cursoId,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRetroOral() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB71C1C).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.record_voice_over,
+                  color: Color(0xFFB71C1C),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                "Retroalimentación oral",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: Color(0xFFB71C1C),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            "Retroalimentación sobre pronunciación y palabras a practicar.",
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 500,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('matriculas')
+                  .where('estudiante_uid', isEqualTo: uid)
+                  .where('activo', isEqualTo: true)
+                  .limit(1)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return _buildEmptyState(
+                    icon: Icons.mic_none,
+                    titulo: "Sin sesiones aún",
+                    subtitulo:
+                        "Completa una conversación para ver tu retroalimentación oral.",
+                  );
+                }
+
+                final matricula =
+                    snapshot.data!.docs.first.data() as Map<String, dynamic>;
+
+                final cursoId = matricula['curso_id'] ?? '';
+
+                return RetroalimentacionOralScreen(
+                  cursoId: cursoId,
+                );
+              },
             ),
           ),
         ],

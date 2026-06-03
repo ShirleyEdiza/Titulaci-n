@@ -5,6 +5,7 @@ import '../auth/login_screen.dart';
 import 'docentes_page.dart';
 import 'estudiantes_page.dart';
 import 'cursos/cursos_list_screen.dart';
+import 'dashboard_admin.dart';
 
 class HomeAdmin extends StatefulWidget {
   const HomeAdmin({super.key});
@@ -17,6 +18,7 @@ class _HomeAdminState extends State<HomeAdmin> {
   int _selectedIndex = 0;
 
   final List<Widget> _pages = [
+    DashboardAdmin(),
     CursosListScreen(),
     DocentesPage(),
     EstudiantesPage(),
@@ -60,6 +62,7 @@ class _HomeAdminState extends State<HomeAdmin> {
         unselectedItemColor: Colors.grey,
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
         items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Inicio"),
           BottomNavigationBarItem(icon: Icon(Icons.class_), label: "Cursos"),
           BottomNavigationBarItem(icon: Icon(Icons.school), label: "Docentes"),
           BottomNavigationBarItem(
