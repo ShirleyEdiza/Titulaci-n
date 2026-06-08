@@ -233,8 +233,7 @@ class _HomeDocenteState extends State<HomeDocente> {
                   "Generar Reporte",
                   Icons.picture_as_pdf,
                   const Color(0xFFB71C1C),
-                  () => ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Próximamente disponible"))),
+                  () => setState(() => _selectedIndex = 1),
                 ),
               ),
             ],

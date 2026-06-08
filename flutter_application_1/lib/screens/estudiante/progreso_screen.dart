@@ -15,7 +15,7 @@ class ProgresoScreen extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('interacciones')
           .where('estudiante_uid', isEqualTo: estudianteUid)
-          .limit(10)
+          .limit(5)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -168,7 +168,7 @@ class ProgresoScreen extends StatelessWidget {
       final respuestasSnap = await FirebaseFirestore.instance
           .collection('respuestas')
           .where('interaccion_id', isEqualTo: interaccionId)
-          .limit(20)
+          .limit(5)
           .get();
 
       final analisisSnap = await FirebaseFirestore.instance
@@ -185,8 +185,8 @@ class ProgresoScreen extends StatelessWidget {
 
       totalRespuestas += respuestasSnap.docs.length;
 
-      int gramaticaSesion = 0;
-      int pronunciacionSesion = 0;
+      int? gramaticaSesion;
+      int? pronunciacionSesion;
 
       if (analisisSnap.docs.isNotEmpty) {
         final a = analisisSnap.docs.first.data();
@@ -208,13 +208,16 @@ class ProgresoScreen extends StatelessWidget {
         }
       }
 
-      historial.add({
-        'fecha_inicio': dataInteraccion['fecha_inicio'],
-        'estado': dataInteraccion['estado'] ?? 'finalizada',
-        'respuestas': respuestasSnap.docs.length,
-        'gramatica': gramaticaSesion,
-        'pronunciacion': pronunciacionSesion,
-      });
+      if (respuestasSnap.docs.isNotEmpty &&
+          (gramaticaSesion != null || pronunciacionSesion != null)) {
+        historial.add({
+          'fecha_inicio': dataInteraccion['fecha_inicio'],
+          'estado': dataInteraccion['estado'] ?? 'finalizada',
+          'respuestas': respuestasSnap.docs.length,
+          'gramatica': gramaticaSesion,
+          'pronunciacion': pronunciacionSesion,
+        });
+      }
     }
 
     historial.sort((a, b) {
