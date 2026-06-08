@@ -206,10 +206,18 @@ async def transcribir(audio: UploadFile = File(...)):
 
         with open(temp_path, "rb") as audio_file:
             transcription = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="en"
-            )
+    model="gpt-4o-mini-transcribe",
+    file=audio_file,
+    language="en",
+    prompt=(
+        "This is an A1/A2 English speaking practice. "
+        "Common phrases include: Hello, my name is Shirley, "
+        "I think my day is good, I like basketball, "
+        "my favorite food is tuna, I am from Ecuador. "
+        "Prefer 'day' over 'dad' when the context is about feelings or daily routine. "
+        "Prefer 'Shirley' as a proper name."
+    )
+)
 
         os.remove(temp_path)
 
@@ -234,7 +242,7 @@ async def analizar(data: Mensaje):
         prompt = f"""
 You are a professional English grammar corrector for beginner A1/A2 students.
 
-Your task is to correct the student's sentence.
+Your task is to correct the student's English sentence and explain the errors in Spanish.
 
 IMPORTANT:
 Return ONLY valid JSON.
@@ -246,27 +254,34 @@ Correction rules:
 - Correct spelling.
 - Correct capitalization.
 - Correct punctuation.
-- If speech-to-text recognized a strange word, infer the most probable word from context.
-- Keep the student's original intention.
-- If the sentence mixes Spanish and English, correct only the English intention.
 - The corrected text must be natural and grammatically correct English.
-- Do not leave the corrected text equal to the original if there are mistakes.
-- Explain errors in simple Spanish.
-- Only return these fields:
-  texto_corregido
-  errores_detectados
-  puntuacion_gramatica
-  nivel_detectado
+- Keep the student's original intention.
+- If speech-to-text recognized a strange word, infer the most probable word from context.
+- If the context is about how the student feels, prefer "day" instead of "dad".
+- If the student mentions the name Shirley, correct "Shirly" to "Shirley".
+- Do not invent new ideas.
+- Do not translate the corrected text into Spanish.
+- The field "texto_corregido" must be in English.
+- The field "errores_detectados" must be written ONLY in Spanish.
+- Use simple Spanish explanations for high school students.
+- Do not write errors in English.
 
 Examples:
-Original: please gun Speak in english
-Corrected: Please, can you speak English?
+Original: Hello my name Shirley
+Corrected: Hello, my name is Shirley.
+Errors:
+- Falta el verbo "is" después de "name".
+- Falta una coma después de "Hello".
 
-Original: name Shirley
-Corrected: My name is Shirley.
+Original: I think my dad is good
+Corrected: I think my day is good.
+Errors:
+- La palabra "dad" no corresponde al contexto; se corrigió por "day".
 
-Original: my favorite food is atun
-Corrected: My favorite food is tuna.
+Original: I like play basketball
+Corrected: I like playing basketball.
+Errors:
+- Después de "like" se debe usar el verbo en gerundio: "playing".
 
 Student text:
 {texto}
@@ -341,24 +356,36 @@ async def pronunciacion(data: PronunciacionRequest):
         prompt = f"""
 You are an English pronunciation evaluator for beginner A1/A2 students.
 
-Analyze the student's recognized spoken sentence and compare it with the correct reference sentence.
+Your task is to evaluate ORAL PRACTICE, not grammar.
 
 Return ONLY valid JSON.
 Do not use markdown.
+Do not write explanations outside JSON.
 
-Important:
-- Detect words that the student should practice.
-- Focus on English pronunciation.
-- Give a simple pronunciation guide.
+VERY IMPORTANT RULES:
+- Do NOT evaluate grammar.
+- Do NOT mark missing words as pronunciation errors.
+- Do NOT mark "is", "am", "are", "the", "a" as pronunciation problems if they are missing.
+- If a word is missing, ignore it in oral feedback because that belongs to written grammar feedback.
+- Only evaluate words or phrases that the student actually said.
+- If the student said a sentence in Spanish, translate the complete idea into simple English and give the complete English pronunciation guide.
+- If the student mixed Spanish and English, identify the Spanish parts and provide the correct English phrase.
+- If the recognized text contains "mi name", understand it as the student tried to say "my name".
+- If the recognized text contains "name" but the student may have pronounced it like Spanish "name", mark "name" as a word to practice.
+- If the recognized text contains "my" but it may sound like Spanish "mi", mark "my" as a word to practice.
+- If the recognized text contains "day" or the context says "I think my day is good", do not confuse it with "dad".
+- If the recognized text contains "dad" but the context is about routine or feelings, suggest "day".
+- Focus on useful pronunciation practice, not on minor punctuation or grammar.
 - Feedback must be in Spanish.
-- Do not include many words, only the most important pronunciation problems.
-- If the sentence is mostly correct, still suggest 1 or 2 useful words to practice.
-- Use simple phonetic guidance, not complex IPA only.
+- Pronunciation guide must be simple for Spanish-speaking students.
+- Use pronunciation guides like: my = "mai", name = "neim", day = "dei", Shirley = "shér-li".
+- Maximum 4 observed items.
+- If pronunciation seems acceptable, return an empty list in "palabras_observadas" and a positive comment.
 
 Student recognized text:
 {texto_reconocido}
 
-Correct reference text:
+Correct grammar/reference text:
 {texto_referencia}
 
 Return exactly this JSON:
@@ -366,12 +393,90 @@ Return exactly this JSON:
 {{
   "texto_reconocido": "",
   "texto_referencia": "",
+  "frase_recomendada": "",
+  "pronunciacion_frase": "",
   "puntuacion_pronunciacion": 0,
+  "comentario_oral": "",
   "palabras_observadas": [
     {{
       "palabra": "",
       "pronunciacion_correcta": "",
       "explicacion": ""
+    }}
+  ]
+}}
+
+Examples:
+
+Example 1:
+Student recognized text: My name Shirley
+Correct grammar/reference text: My name is Shirley
+Expected idea:
+- Do not mark "is" as pronunciation error.
+- This is a grammar omission, not pronunciation.
+- If useful, practice the full phrase.
+
+Output:
+{{
+  "texto_reconocido": "My name Shirley",
+  "texto_referencia": "My name is Shirley",
+  "frase_recomendada": "My name is Shirley.",
+  "pronunciacion_frase": "Mai neim is shér-li.",
+  "puntuacion_pronunciacion": 80,
+  "comentario_oral": "La pronunciación general es comprensible. Practica la frase completa para decirla con mayor naturalidad.",
+  "palabras_observadas": [
+    {{
+      "palabra": "name",
+      "pronunciacion_correcta": "neim",
+      "explicacion": "La palabra 'name' no se pronuncia como se lee en español; se pronuncia 'neim'."
+    }}
+  ]
+}}
+
+Example 2:
+Student recognized text: Mi nombre es Shirley
+Correct grammar/reference text: My name is Shirley
+Expected idea:
+- Student used Spanish.
+- Provide English sentence and pronunciation.
+
+Output:
+{{
+  "texto_reconocido": "Mi nombre es Shirley",
+  "texto_referencia": "My name is Shirley",
+  "frase_recomendada": "My name is Shirley.",
+  "pronunciacion_frase": "Mai neim is shér-li.",
+  "puntuacion_pronunciacion": 55,
+  "comentario_oral": "La idea fue expresada en español. Para practicar speaking, intenta decir la frase completa en inglés.",
+  "palabras_observadas": [
+    {{
+      "palabra": "My name is Shirley",
+      "pronunciacion_correcta": "Mai neim is shér-li",
+      "explicacion": "Practica la oración completa en inglés para responder correctamente."
+    }}
+  ]
+}}
+
+Example 3:
+Student recognized text: I think my dad is good
+Correct grammar/reference text: I think my day is good
+Expected idea:
+- In this context, correct probable word is day.
+- Practice day.
+
+Output:
+{{
+  "texto_reconocido": "I think my dad is good",
+  "texto_referencia": "I think my day is good",
+  "frase_recomendada": "I think my day is good.",
+  "pronunciacion_frase": "Ai think mai dei is gud.",
+  "puntuacion_pronunciacion": 70,
+  "comentario_oral": "La frase se entiende, pero la palabra 'day' debe pronunciarse claramente.",
+  "palabras_observadas": [
+    {{
+      "palabra": "day",
+      "pronunciacion_correcta": "dei",
+      "explicacion": "La palabra 'day' se pronuncia 'dei'. Evita que suene como 'dad'."
     }}
   ]
 }}
@@ -382,15 +487,18 @@ Return exactly this JSON:
             messages=[
                 {
                     "role": "system",
-                    "content": "You evaluate beginner English pronunciation and return only JSON."
+                    "content": (
+                        "You evaluate oral English pronunciation for Spanish-speaking "
+                        "A1/A2 students. You must not evaluate grammar. Return only valid JSON."
+                    )
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            temperature=0.2,
-            max_tokens=250
+            temperature=0.1,
+            max_tokens=450
         )
 
         texto_respuesta = response.choices[0].message.content.strip()
@@ -411,7 +519,10 @@ Return exactly this JSON:
             "resultado": {
                 "texto_reconocido": texto_reconocido,
                 "texto_referencia": texto_referencia,
+                "frase_recomendada": texto_referencia,
+                "pronunciacion_frase": "",
                 "puntuacion_pronunciacion": 0,
+                "comentario_oral": "No se pudo analizar la pronunciación.",
                 "palabras_observadas": []
             }
         }

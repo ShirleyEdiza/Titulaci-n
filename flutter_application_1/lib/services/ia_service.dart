@@ -10,9 +10,7 @@ class IAService {
     try {
       final response = await http
           .post(
-            Uri.parse(
-              "https://bouquet-replica-insulin-economic.trycloudflare.com/chat",
-            ),
+            Uri.parse("https://titulaci-n.onrender.com/chat"),
             headers: {
               "Content-Type": "application/json",
             },

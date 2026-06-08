@@ -6,9 +6,7 @@ class AnalisisService {
     try {
       final response = await http
           .post(
-            Uri.parse(
-              "https://bouquet-replica-insulin-economic.trycloudflare.com/analizar",
-            ),
+            Uri.parse("https://titulaci-n.onrender.com/analizar"),
             headers: {
               "Content-Type": "application/json",
             },

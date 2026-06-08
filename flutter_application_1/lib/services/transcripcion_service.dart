@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class TranscripcionService {
-  final String baseUrl =
-      "https://bouquet-replica-insulin-economic.trycloudflare.com";
+  final String baseUrl = "https://titulaci-n.onrender.com";
 
   Future<String> transcribirAudio(String audioPath) async {
     try {
