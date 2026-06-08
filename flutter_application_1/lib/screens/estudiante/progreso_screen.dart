@@ -32,6 +32,19 @@ class ProgresoScreen extends StatelessWidget {
         return FutureBuilder<Map<String, dynamic>>(
           future: _calcularResumen(interacciones),
           builder: (context, resumenSnap) {
+            if (resumenSnap.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text(
+                    "Error al cargar progreso: ${resumenSnap.error}",
+                    style: const TextStyle(color: Colors.red),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              );
+            }
+
             if (!resumenSnap.hasData) {
               return const Center(
                 child: CircularProgressIndicator(color: Color(0xFFB71C1C)),
@@ -289,9 +302,13 @@ class ProgresoScreen extends StatelessWidget {
                 children: respuestas.map((doc) {
                   final respuesta = doc.data() as Map<String, dynamic>;
 
-                  final textoUsuario = respuesta['texto_usuario'] ?? '';
-                  final respuestaAsistente =
-                      respuesta['respuesta_asistente'] ?? '';
+                  final textoUsuario = respuesta['texto_generado'] ??
+                      respuesta['texto_usuario'] ??
+                      '';
+
+                  final respuestaAsistente = respuesta['respuesta_ia'] ??
+                      respuesta['respuesta_asistente'] ??
+                      '';
 
                   return Container(
                     width: double.infinity,
