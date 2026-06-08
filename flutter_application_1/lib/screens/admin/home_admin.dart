@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_application_1/widgets/custom_snackbar.dart';
 import '../auth/login_screen.dart';
 import 'docentes_page.dart';
 import 'estudiantes_page.dart';
 import 'cursos/cursos_list_screen.dart';
 import 'dashboard_admin.dart';
+import '../perfil/perfil_screen.dart';
 
 class HomeAdmin extends StatefulWidget {
   const HomeAdmin({super.key});
@@ -51,7 +51,41 @@ class _HomeAdminState extends State<HomeAdmin> {
           ],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'perfil') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PerfilScreen()),
+                );
+              } else if (value == 'salir') {
+                _logout();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'perfil',
+                child: Row(
+                  children: [
+                    Icon(Icons.person, color: Color(0xFF1A237E)),
+                    SizedBox(width: 8),
+                    Text("Mi perfil"),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'salir',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, color: Color(0xFFB71C1C)),
+                    SizedBox(width: 8),
+                    Text("Cerrar sesión"),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: _pages[_selectedIndex],

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/login_screen.dart';
 import 'progreso_estudiantes_screen.dart';
+import '../perfil/perfil_screen.dart';
 
 class HomeDocente extends StatefulWidget {
   const HomeDocente({super.key});
@@ -83,8 +84,43 @@ class _HomeDocenteState extends State<HomeDocente> {
           ],
         ),
         actions: [
-          IconButton(
-              icon: const Icon(Icons.logout, size: 20), onPressed: _logout),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'perfil') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PerfilScreen(),
+                  ),
+                );
+              } else if (value == 'salir') {
+                _logout();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'perfil',
+                child: Row(
+                  children: [
+                    Icon(Icons.person, color: Color(0xFF1A237E)),
+                    SizedBox(width: 8),
+                    Text("Mi perfil"),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'salir',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, color: Color(0xFFB71C1C)),
+                    SizedBox(width: 8),
+                    Text("Cerrar sesión"),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: _selectedIndex == 0 ? _buildPanelTab() : _buildEstudiantesTab(),
