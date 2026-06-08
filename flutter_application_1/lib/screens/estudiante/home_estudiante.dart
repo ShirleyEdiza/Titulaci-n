@@ -7,6 +7,7 @@ import 'participantes_screen.dart';
 import 'asistente_virtual_screen.dart';
 import 'retroalimentacion_screen.dart';
 import 'retroalimentacion_oral_screen.dart';
+import 'progreso_screen.dart';
 
 class HomeEstudiante extends StatefulWidget {
   const HomeEstudiante({super.key});
@@ -97,7 +98,7 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
       body: _selectedIndex == 0
           ? _buildCursosTab()
           : _selectedIndex == 1
-              ? _buildProgresoTab()
+              ? ProgresoScreen(estudianteUid: uid)
               : _buildRetroalimentacionTab(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
