@@ -3,6 +3,9 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import '../../services/transcripcion_service.dart';
 
 import '../../widgets/virtual_assistant_avatar.dart';
 import '../../repositories/audio_repository.dart';
@@ -30,6 +33,10 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     with SingleTickerProviderStateMixin {
   final stt.SpeechToText _speech = stt.SpeechToText();
   final FlutterTts _tts = FlutterTts();
+  final AudioRecorder _recorder = AudioRecorder();
+  final TranscripcionService _transcripcionService = TranscripcionService();
+
+  String? audioActualPath;
 
   final AudioRepository _audioRepository = AudioRepository();
   final IAService _iaService = IAService();
@@ -127,34 +134,14 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   Future<void> iniciar() async {
     if (iniciado || guardando) return;
 
-    final disponible = await _speech.initialize(
-      onStatus: (status) {
-        debugPrint("STATUS SPEECH: $status");
-      },
-      onError: (error) {
-        debugPrint("ERROR SPEECH: ${error.errorMsg}");
-
-        setState(() {
-          escuchando = false;
-          estadoMicrofono = "No se detectó voz. Intenta nuevamente.";
-        });
-      },
-    );
-
-    if (!disponible) {
-      _mostrarMensaje(
-        "No se pudo activar el reconocimiento de voz",
-        Colors.red,
-      );
-      return;
-    }
-
     final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
 
     interaccionId = await _audioRepository.crearInteraccion(
       estudianteUid: uid,
       cursoId: widget.cursoId,
     );
+
+    if (!mounted) return;
 
     setState(() {
       iniciado = true;
@@ -174,26 +161,74 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   Future<void> _iniciarEscuchaContinua() async {
     if (!iniciado || guardando || procesandoRespuesta) return;
 
-    await _speech.listen(
-      listenMode: stt.ListenMode.dictation,
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 6),
-      partialResults: true,
-      cancelOnError: false,
-      onResult: _procesarResultadoVoz,
-    );
+    final dir = await getTemporaryDirectory();
+    audioActualPath =
+        "${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a";
+
+    if (!mounted) return;
+
+    setState(() {
+      escuchando = true;
+      estadoMicrofono = "Habla ahora...";
+    });
+
+    if (await _recorder.hasPermission()) {
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
+        path: audioActualPath!,
+      );
+    } else {
+      setState(() {
+        escuchando = false;
+        estadoMicrofono = "Permiso de micrófono denegado";
+      });
+      return;
+    }
+
+    await Future.delayed(const Duration(seconds: 7));
+
+    if (!iniciado || guardando || procesandoRespuesta) return;
+
+    await _procesarAudioGrabadoConWhisper();
   }
 
   Future<void> _procesarResultadoVoz(result) async {
-    final textoDetectado = result.recognizedWords.trim();
+    String textoDetectado = result.recognizedWords.trim();
 
-    setState(() {
-      textoUsuario = textoDetectado;
-    });
+    if (mounted) {
+      setState(() {
+        textoUsuario = textoDetectado;
+      });
+    }
 
     if (!result.finalResult) return;
 
+    String? audioFinalPath;
+
+    try {
+      if (await _recorder.isRecording()) {
+        audioFinalPath = await _recorder.stop();
+      }
+    } catch (e) {
+      debugPrint("Error deteniendo grabación: $e");
+    }
+
+    if (audioFinalPath != null && audioFinalPath.isNotEmpty) {
+      final textoWhisper =
+          await _transcripcionService.transcribirAudio(audioFinalPath);
+
+      if (textoWhisper.trim().isNotEmpty) {
+        textoDetectado = textoWhisper.trim();
+      }
+    }
+
     if (textoDetectado.isEmpty) {
+      if (!mounted) return;
+
       setState(() {
         escuchando = false;
         estadoMicrofono = "No se detectó voz";
@@ -201,17 +236,97 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
 
       if (iniciado) {
         await Future.delayed(const Duration(milliseconds: 700));
+
+        if (!mounted) return;
+
         setState(() {
           escuchando = true;
           estadoMicrofono = "Habla con el asistente";
         });
+
         await _iniciarEscuchaContinua();
       }
 
       return;
     }
 
+    await _procesarTextoFinal(textoDetectado);
+  }
+
+  Future<void> salirSinGuardar() async {
+    await _speech.stop();
+    await _tts.stop();
+    if (await _recorder.isRecording()) {
+      await _recorder.stop();
+    }
+
     setState(() {
+      iniciado = false;
+      escuchando = false;
+      interaccionId = null;
+      procesandoRespuesta = false;
+    });
+
+    if (mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> _procesarAudioGrabadoConWhisper() async {
+    if (procesandoRespuesta || guardando || !iniciado) return;
+
+    String? audioFinalPath;
+
+    try {
+      if (await _recorder.isRecording()) {
+        audioFinalPath = await _recorder.stop();
+      }
+    } catch (e) {
+      debugPrint("Error deteniendo grabación en Whisper: $e");
+    }
+
+    if (audioFinalPath == null || audioFinalPath.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        escuchando = false;
+        estadoMicrofono = "No se detectó audio. Intenta nuevamente.";
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      escuchando = false;
+      procesandoRespuesta = true;
+      estadoMicrofono = "Transcribiendo audio...";
+    });
+
+    final textoWhisper =
+        await _transcripcionService.transcribirAudio(audioFinalPath);
+
+    final textoDetectado = textoWhisper.trim();
+
+    if (textoDetectado.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        procesandoRespuesta = false;
+        escuchando = true;
+        estadoMicrofono = "No se pudo transcribir. Intenta nuevamente.";
+      });
+
+      await Future.delayed(const Duration(milliseconds: 700));
+      await _iniciarEscuchaContinua();
+      return;
+    }
+
+    await _procesarTextoFinal(textoDetectado);
+  }
+
+  Future<void> _procesarTextoFinal(String textoDetectado) async {
+    if (!mounted) return;
+
+    setState(() {
+      textoUsuario = textoDetectado;
       escuchando = false;
       procesandoRespuesta = true;
       estadoMicrofono = "Procesando respuesta...";
@@ -224,11 +339,12 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
       historialUsuario: historialUsuario,
       historialAsistente: historialAsistente,
     );
+
     final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
 
-    String textoLower = textoDetectado.toLowerCase();
+    final textoLower = textoDetectado.toLowerCase();
 
-    String idiomaDetectado = textoLower.contains("hola") ||
+    final idiomaDetectado = textoLower.contains("hola") ||
             textoLower.contains("gracias") ||
             textoLower.contains("buenos") ||
             textoLower.contains("adiós") ||
@@ -253,6 +369,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     historialUsuario.add(textoDetectado);
     historialAsistente.add(respuesta);
 
+    if (!mounted) return;
     setState(() {
       respuestaAsistente = respuesta;
       estadoMicrofono = "Respuesta generada";
@@ -268,35 +385,22 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     } else {
       await _tts.setLanguage("en-US");
     }
+
     await _tts.speak(respuesta);
 
+    if (!mounted) return;
     setState(() {
       procesandoRespuesta = false;
     });
 
     if (iniciado && !guardando) {
       await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
       setState(() {
         escuchando = true;
         estadoMicrofono = "Habla con el asistente";
       });
       await _iniciarEscuchaContinua();
-    }
-  }
-
-  Future<void> salirSinGuardar() async {
-    await _speech.stop();
-    await _tts.stop();
-
-    setState(() {
-      iniciado = false;
-      escuchando = false;
-      interaccionId = null;
-      procesandoRespuesta = false;
-    });
-
-    if (mounted) {
-      Navigator.pop(context);
     }
   }
 
@@ -310,6 +414,10 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     try {
       await _speech.stop();
       await _tts.stop();
+
+      if (await _recorder.isRecording()) {
+        await _recorder.stop();
+      }
 
       if (historialUsuario.isNotEmpty &&
           respuestasIds.isNotEmpty &&
@@ -459,6 +567,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   void dispose() {
     _speech.stop();
     _tts.stop();
+    _recorder.dispose();
     _pulseController.dispose();
     super.dispose();
   }

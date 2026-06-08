@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from openai import OpenAI
+from fastapi import UploadFile, File
+import tempfile
 import os
 import random
 import requests
@@ -192,6 +194,34 @@ Student:
             "modo": "local"
         }
 
+
+@app.post("/transcribir")
+async def transcribir(audio: UploadFile = File(...)):
+    try:
+        suffix = os.path.splitext(audio.filename)[1] or ".m4a"
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
+            temp.write(await audio.read())
+            temp_path = temp.name
+
+        with open(temp_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="en"
+            )
+
+        os.remove(temp_path)
+
+        return {
+            "texto": transcription.text
+        }
+
+    except Exception as e:
+        print("ERROR TRANSCRIPCION:", e)
+        return {
+            "texto": ""
+        }
 # =========================
 # ANALISIS GRAMATICAL
 # =========================

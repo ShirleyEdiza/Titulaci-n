@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class PronunciacionService {
-  final String baseUrl = "http://192.168.3.139:8000";
+  final String baseUrl =
+      "https://bouquet-replica-insulin-economic.trycloudflare.com";
 
   Future<Map<String, dynamic>> analizarPronunciacion({
     required String textoReconocido,
