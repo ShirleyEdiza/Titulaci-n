@@ -15,230 +15,83 @@ class ProgresoScreen extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('interacciones')
           .where('estudiante_uid', isEqualTo: estudianteUid)
+          .limit(10)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              "Error: ${snapshot.error}",
+              style: const TextStyle(color: Colors.red),
+            ),
+          );
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
             child: CircularProgressIndicator(color: Color(0xFFB71C1C)),
           );
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        final interacciones = snapshot.data?.docs ?? [];
+
+        if (interacciones.isEmpty) {
           return _emptyState();
         }
 
-        final interacciones = snapshot.data!.docs;
-
-        return FutureBuilder<Map<String, dynamic>>(
-          future: _calcularResumen(interacciones),
-          builder: (context, resumenSnap) {
-            if (resumenSnap.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    "Error al cargar progreso: ${resumenSnap.error}",
-                    style: const TextStyle(color: Colors.red),
-                    textAlign: TextAlign.center,
-                  ),
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Mi Progreso",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A237E),
                 ),
-              );
-            }
-
-            if (!resumenSnap.hasData) {
-              return const Center(
-                child: CircularProgressIndicator(color: Color(0xFFB71C1C)),
-              );
-            }
-
-            final resumen = resumenSnap.data!;
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                "Historial de tus sesiones de práctica.",
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Row(
                 children: [
-                  const Text(
-                    "Mi Progreso",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E),
+                  Expanded(
+                    child: _statCard(
+                      interacciones.length.toString(),
+                      "Sesiones",
+                      Icons.mic,
+                      const Color(0xFF1A237E),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    "Resumen de tus sesiones e historial de práctica.",
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _statCard(
-                          resumen['total_sesiones'].toString(),
-                          "Sesiones",
-                          Icons.mic,
-                          const Color(0xFF1A237E),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _statCard(
-                          resumen['total_respuestas'].toString(),
-                          "Respuestas",
-                          Icons.question_answer,
-                          const Color(0xFFB71C1C),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _statCard(
-                          "${resumen['promedio_pronunciacion']}%",
-                          "Pronunciación",
-                          Icons.record_voice_over,
-                          const Color(0xFF4A148C),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _statCard(
-                          "${resumen['promedio_gramatica']}%",
-                          "Gramática",
-                          Icons.spellcheck,
-                          const Color(0xFFF9A825),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: _cardDecoration(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Resumen de habilidades",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A237E),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _habilidad(
-                          "Gramática",
-                          resumen['promedio_gramatica'] / 100,
-                          const Color(0xFF1A237E),
-                        ),
-                        const SizedBox(height: 12),
-                        _habilidad(
-                          "Pronunciación",
-                          resumen['promedio_pronunciacion'] / 100,
-                          const Color(0xFFB71C1C),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    "Historial de interacciones",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...interacciones.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-
-                    return _historialCard(
-                      interaccionId: doc.id,
-                      data: data,
-                    );
-                  }).toList(),
                 ],
               ),
-            );
-          },
+              const SizedBox(height: 24),
+              const Text(
+                "Historial de interacciones",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A237E),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...interacciones.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return _historialCard(
+                  interaccionId: doc.id,
+                  data: data,
+                );
+              }).toList(),
+            ],
+          ),
         );
       },
     );
-  }
-
-  Future<Map<String, dynamic>> _calcularResumen(
-    List<QueryDocumentSnapshot> interacciones,
-  ) async {
-    int totalSesiones = interacciones.length;
-    int totalRespuestas = 0;
-
-    int sumaGramatica = 0;
-    int cantidadGramatica = 0;
-
-    int sumaPronunciacion = 0;
-    int cantidadPronunciacion = 0;
-
-    for (final interaccion in interacciones) {
-      final interaccionId = interaccion.id;
-
-      final respuestasSnap = await FirebaseFirestore.instance
-          .collection('respuestas')
-          .where('interaccion_id', isEqualTo: interaccionId)
-          .get();
-
-      totalRespuestas += respuestasSnap.docs.length;
-
-      final analisisSnap = await FirebaseFirestore.instance
-          .collection('analisis')
-          .where('interaccion_id', isEqualTo: interaccionId)
-          .get();
-
-      for (final doc in analisisSnap.docs) {
-        final data = doc.data();
-        final puntuacion = data['puntuacion_gramatica'];
-
-        if (puntuacion is num) {
-          sumaGramatica += puntuacion.toInt();
-          cantidadGramatica++;
-        }
-      }
-
-      final pronunciacionSnap = await FirebaseFirestore.instance
-          .collection('pronunciacion')
-          .where('interaccion_id', isEqualTo: interaccionId)
-          .get();
-
-      for (final doc in pronunciacionSnap.docs) {
-        final data = doc.data();
-        final puntuacion = data['puntuacion_pronunciacion'];
-
-        if (puntuacion is num) {
-          sumaPronunciacion += puntuacion.toInt();
-          cantidadPronunciacion++;
-        }
-      }
-    }
-
-    final promedioGramatica = cantidadGramatica == 0
-        ? 0
-        : (sumaGramatica / cantidadGramatica).round();
-
-    final promedioPronunciacion = cantidadPronunciacion == 0
-        ? 0
-        : (sumaPronunciacion / cantidadPronunciacion).round();
-
-    return {
-      'total_sesiones': totalSesiones,
-      'total_respuestas': totalRespuestas,
-      'promedio_gramatica': promedioGramatica,
-      'promedio_pronunciacion': promedioPronunciacion,
-    };
   }
 
   Widget _historialCard({
@@ -277,6 +130,7 @@ class ProgresoScreen extends StatelessWidget {
             future: FirebaseFirestore.instance
                 .collection('respuestas')
                 .where('interaccion_id', isEqualTo: interaccionId)
+                .limit(10)
                 .get(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
