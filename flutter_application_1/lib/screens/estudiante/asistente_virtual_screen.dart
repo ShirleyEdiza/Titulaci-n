@@ -92,13 +92,14 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   Future<void> _cargarNombreUsuario() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-
       if (user == null) return;
 
       final doc = await FirebaseFirestore.instance
           .collection('usuarios')
           .doc(user.uid)
           .get();
+
+      if (!mounted) return;
 
       if (doc.exists && doc.data()?['nombre'] != null) {
         setState(() {
@@ -112,6 +113,8 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
           .where('email', isEqualTo: user.email)
           .limit(1)
           .get();
+
+      if (!mounted) return;
 
       if (query.docs.isNotEmpty) {
         setState(() {
@@ -159,7 +162,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> _iniciarEscuchaContinua() async {
-    if (!iniciado || guardando || procesandoRespuesta) return;
+    if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
 
     final dir = await getTemporaryDirectory();
     audioActualPath =
@@ -191,7 +194,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
 
     await Future.delayed(const Duration(seconds: 7));
 
-    if (!iniciado || guardando || procesandoRespuesta) return;
+    if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
 
     await _procesarAudioGrabadoConWhisper();
   }
@@ -254,22 +257,30 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> salirSinGuardar() async {
+    iniciado = false;
+    guardando = true;
+    escuchando = false;
+    procesandoRespuesta = false;
+
     await _speech.stop();
     await _tts.stop();
-    if (await _recorder.isRecording()) {
-      await _recorder.stop();
+
+    try {
+      if (await _recorder.isRecording()) {
+        await _recorder.stop();
+      }
+    } catch (e) {
+      debugPrint("Error deteniendo grabación al salir: $e");
     }
+
+    if (!mounted) return;
 
     setState(() {
-      iniciado = false;
-      escuchando = false;
       interaccionId = null;
-      procesandoRespuesta = false;
+      estadoMicrofono = "Micrófono detenido";
     });
 
-    if (mounted) {
-      Navigator.pop(context);
-    }
+    Navigator.pop(context);
   }
 
   Future<void> _procesarAudioGrabadoConWhisper() async {
@@ -405,6 +416,8 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> terminar() async {
+    if (!mounted) return;
+
     setState(() {
       guardando = true;
       escuchando = false;
@@ -565,10 +578,25 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
 
   @override
   void dispose() {
+    iniciado = false;
+    guardando = true;
+    escuchando = false;
+    procesandoRespuesta = false;
+
     _speech.stop();
     _tts.stop();
-    _recorder.dispose();
+
+    _recorder.isRecording().then((grabando) {
+      if (grabando) {
+        _recorder.stop();
+      }
+    }).catchError((e) {
+      debugPrint("Error cerrando recorder: $e");
+    });
+
     _pulseController.dispose();
+    _recorder.dispose();
+
     super.dispose();
   }
 
