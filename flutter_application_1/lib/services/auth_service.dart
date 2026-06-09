@@ -6,76 +6,100 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // Máximo de intentos fallidos
   static const int maxIntentos = 3;
 
-  // LOGIN CON CONTROL DE INTENTOS
+  String _normalizarEmail(String email) {
+    return email.trim().toLowerCase();
+  }
+
+  String _idIntento(String email) {
+    return _normalizarEmail(email).replaceAll('.', '_');
+  }
+
   Future<Map<String, dynamic>> login(String email, String password) async {
+    final emailNormalizado = _normalizarEmail(email);
+    final intentoRef =
+        _db.collection('intentos_login').doc(_idIntento(emailNormalizado));
+
     try {
-      // Verificar intentos fallidos antes de intentar login
-      QuerySnapshot intentosSnap = await _db
-          .collection('intentos_login')
-          .where('email', isEqualTo: email)
-          .where('bloqueado', isEqualTo: true)
-          .get();
+      final intentoDoc = await intentoRef.get();
 
-      if (intentosSnap.docs.isNotEmpty) {
-        var data = intentosSnap.docs.first.data() as Map<String, dynamic>;
-        DateTime? bloqueoHasta = data['bloqueo_hasta']?.toDate();
+      if (intentoDoc.exists) {
+        final data = intentoDoc.data() ?? {};
+        final bloqueado = data['bloqueado'] ?? false;
+        final bloqueoHasta = data['bloqueo_hasta'];
 
-        if (bloqueoHasta != null && DateTime.now().isBefore(bloqueoHasta)) {
-          int minutosRestantes =
-              bloqueoHasta.difference(DateTime.now()).inMinutes + 1;
-          return {
-            'success': false,
-            'message':
-                'Cuenta bloqueada. Intenta en $minutosRestantes minutos.',
-          };
-        } else {
-          // Desbloquear si ya pasó el tiempo
-          await intentosSnap.docs.first.reference.delete();
+        if (bloqueado == true && bloqueoHasta is Timestamp) {
+          final fechaBloqueo = bloqueoHasta.toDate();
+
+          if (DateTime.now().isBefore(fechaBloqueo)) {
+            final minutosRestantes =
+                fechaBloqueo.difference(DateTime.now()).inMinutes + 1;
+
+            return {
+              'success': false,
+              'message':
+                  'Cuenta bloqueada. Intenta en $minutosRestantes minutos.',
+            };
+          } else {
+            await intentoRef.delete();
+          }
         }
       }
 
-      // Intentar login
-      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-        email: email,
+      final userCredential = await _auth.signInWithEmailAndPassword(
+        email: emailNormalizado,
         password: password,
       );
 
-      // Login exitoso - limpiar intentos
-      await _limpiarIntentos(email);
+      final user = userCredential.user;
 
-      // Obtener datos del usuario
-      DocumentSnapshot userDoc =
-          await _db.collection('usuarios').doc(userCredential.user!.uid).get();
-
-      if (!userDoc.exists) {
+      if (user == null) {
         return {
           'success': false,
-          'message': 'Usuario no registrado en el sistema',
+          'message': 'No se pudo iniciar sesión.',
         };
       }
 
-      Map<String, dynamic> data = userDoc.data() as Map<String, dynamic>;
+      final userDoc = await _db.collection('usuarios').doc(user.uid).get();
 
-      bool activo = data['activo'] ?? true;
-      if (!activo) {
-        return {'success': false, 'message': 'Usuario desactivado'};
+      if (!userDoc.exists) {
+        await _auth.signOut();
+        return {
+          'success': false,
+          'message': 'Usuario no registrado en el sistema.',
+        };
       }
+
+      final data = userDoc.data() as Map<String, dynamic>;
+
+      final activo = data['activo'] ?? true;
+
+      if (activo == false) {
+        await _auth.signOut();
+        return {
+          'success': false,
+          'message': 'Usuario desactivado.',
+        };
+      }
+
+      await intentoRef.delete().catchError((_) {});
 
       return {
         'success': true,
-        'rol': data['rol'] ?? 'estudiante',
-        'usuario': UsuarioModel.fromMap(userCredential.user!.uid, data),
+        'rol': data['rol'] ?? data['role'] ?? 'estudiante',
+        'usuario': UsuarioModel.fromMap(user.uid, data),
       };
     } on FirebaseAuthException catch (e) {
-      // Registrar intento fallido
-      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
-        await _registrarIntentoFallido(email);
-        int intentosRestantes = await _getIntentosRestantes(email);
+      if (e.code == 'wrong-password' ||
+          e.code == 'invalid-credential' ||
+          e.code == 'user-not-found') {
+        final restantes = await _registrarIntentoFallido(
+          intentoRef,
+          emailNormalizado,
+        );
 
-        if (intentosRestantes <= 0) {
+        if (restantes <= 0) {
           return {
             'success': false,
             'message':
@@ -86,38 +110,83 @@ class AuthService {
         return {
           'success': false,
           'message':
-              'Contraseña incorrecta. Te quedan $intentosRestantes intentos.',
+              'Correo o contraseña incorrectos. Te quedan $restantes intentos.',
         };
       }
 
-      if (e.code == 'user-not-found') {
-        return {'success': false, 'message': 'Correo no registrado'};
-      }
-
       if (e.code == 'invalid-email') {
-        return {'success': false, 'message': 'Correo inválido'};
+        return {
+          'success': false,
+          'message': 'Correo inválido.',
+        };
       }
 
-      return {'success': false, 'message': 'Error al iniciar sesión'};
+      if (e.code == 'too-many-requests') {
+        return {
+          'success': false,
+          'message': 'Demasiados intentos. Intenta más tarde.',
+        };
+      }
+
+      return {
+        'success': false,
+        'message': 'Error al iniciar sesión.',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Error al conectar con el servidor.',
+      };
     }
   }
 
-  // REGISTRO
+  Future<int> _registrarIntentoFallido(
+    DocumentReference<Map<String, dynamic>> intentoRef,
+    String email,
+  ) async {
+    final doc = await intentoRef.get();
+
+    int intentos = 1;
+
+    if (doc.exists) {
+      final data = doc.data() ?? {};
+      intentos = ((data['intentos'] ?? 0) as int) + 1;
+    }
+
+    final bloqueado = intentos >= maxIntentos;
+
+    await intentoRef.set({
+      'email': email,
+      'intentos': intentos,
+      'bloqueado': bloqueado,
+      'ultima_vez': FieldValue.serverTimestamp(),
+      if (bloqueado)
+        'bloqueo_hasta':
+            Timestamp.fromDate(DateTime.now().add(const Duration(minutes: 15))),
+    }, SetOptions(merge: true));
+
+    return maxIntentos - intentos;
+  }
+
   Future<Map<String, dynamic>> register(
-      String email, String password, String nombre) async {
+    String email,
+    String password,
+    String nombre,
+  ) async {
     try {
-      UserCredential userCredential =
-          await _auth.createUserWithEmailAndPassword(
-        email: email,
+      final emailNormalizado = _normalizarEmail(email);
+
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: emailNormalizado,
         password: password,
       );
 
       await _db.collection('usuarios').doc(userCredential.user!.uid).set({
-        'email': email,
+        'email': emailNormalizado,
         'nombre': nombre,
         'rol': 'estudiante',
         'activo': true,
-        'fecha_registro': DateTime.now(),
+        'fecha_registro': FieldValue.serverTimestamp(),
       });
 
       return {'success': true};
@@ -127,7 +196,8 @@ class AuthService {
       if (e.code == 'email-already-in-use') {
         message = 'Este correo ya está registrado';
       } else if (e.code == 'weak-password') {
-        message = 'La contraseña debe tener al menos 6 caracteres';
+        message =
+            'La contraseña debe tener mayúscula, minúscula, número y carácter especial.';
       } else if (e.code == 'invalid-email') {
         message = 'Correo inválido';
       }
@@ -136,81 +206,30 @@ class AuthService {
     }
   }
 
-  // RECUPERAR CONTRASEÑA
   Future<Map<String, dynamic>> recuperarContrasena(String email) async {
     try {
-      await _auth.sendPasswordResetEmail(email: email);
+      final emailNormalizado = _normalizarEmail(email);
+
+      await _auth.sendPasswordResetEmail(email: emailNormalizado);
+
       return {
         'success': true,
-        'message': 'Correo de recuperación enviado a $email',
+        'message': 'Correo de recuperación enviado a $emailNormalizado',
       };
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') {
         return {'success': false, 'message': 'Correo no registrado'};
       }
+
+      if (e.code == 'invalid-email') {
+        return {'success': false, 'message': 'Correo inválido'};
+      }
+
       return {'success': false, 'message': 'Error al enviar correo'};
     }
   }
 
-  // CERRAR SESIÓN
   Future<void> logout() async {
     await _auth.signOut();
-  }
-
-  // MÉTODOS PRIVADOS
-  Future<void> _registrarIntentoFallido(String email) async {
-    QuerySnapshot snap = await _db
-        .collection('intentos_login')
-        .where('email', isEqualTo: email)
-        .get();
-
-    if (snap.docs.isEmpty) {
-      await _db.collection('intentos_login').add({
-        'email': email,
-        'intentos': 1,
-        'bloqueado': false,
-        'ultima_vez': DateTime.now(),
-      });
-    } else {
-      var doc = snap.docs.first;
-      var data = doc.data() as Map<String, dynamic>;
-      int intentos = (data['intentos'] ?? 0) + 1;
-
-      if (intentos >= maxIntentos) {
-        await doc.reference.update({
-          'intentos': intentos,
-          'bloqueado': true,
-          'bloqueo_hasta': DateTime.now().add(const Duration(minutes: 15)),
-        });
-      } else {
-        await doc.reference.update({
-          'intentos': intentos,
-          'ultima_vez': DateTime.now(),
-        });
-      }
-    }
-  }
-
-  Future<int> _getIntentosRestantes(String email) async {
-    QuerySnapshot snap = await _db
-        .collection('intentos_login')
-        .where('email', isEqualTo: email)
-        .get();
-
-    if (snap.docs.isEmpty) return maxIntentos;
-    var data = snap.docs.first.data() as Map<String, dynamic>;
-    int intentos = data['intentos'] ?? 0;
-    return maxIntentos - intentos;
-  }
-
-  Future<void> _limpiarIntentos(String email) async {
-    QuerySnapshot snap = await _db
-        .collection('intentos_login')
-        .where('email', isEqualTo: email)
-        .get();
-
-    for (var doc in snap.docs) {
-      await doc.reference.delete();
-    }
   }
 }

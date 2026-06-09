@@ -113,14 +113,28 @@ class _PerfilScreenState extends State<PerfilScreen> {
         password: actual,
       );
 
-      await user.reauthenticateWithCredential(credencial);
       await user.updatePassword(nueva);
 
       _actualController.clear();
       _nuevaController.clear();
       _confirmarController.clear();
 
-      _mensaje("Contraseña actualizada correctamente.");
+      _mensaje(
+          "✓ Contraseña actualizada correctamente.\nPor seguridad deberás volver a iniciar sesión.");
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
+        ),
+        (route) => false,
+      );
     } on FirebaseAuthException catch (e) {
       if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
         _mensaje("La contraseña actual es incorrecta.");
