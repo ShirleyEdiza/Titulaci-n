@@ -150,6 +150,10 @@ VERY IMPORTANT RULES:
 - Do not explain too much.
 - Do not use markdown.
 - Do not use symbols or asterisks.
+- Answer in one short sentence.
+- Maximum 10 words.
+- Ask only one simple question.
+- Do not give explanations.
 - If the student asks for translation in Spanish, translate naturally.
 - If the student asks about days, months, food, hobbies, etc., answer naturally like a teacher.
 
@@ -173,8 +177,8 @@ Student:
                     "content": prompt
                 }
             ],
-            temperature=0.4,
-            max_tokens=60
+            temperature=0.3,
+            max_tokens=40
         )
 
         texto = response.choices[0].message.content.strip()
