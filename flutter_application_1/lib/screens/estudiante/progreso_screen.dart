@@ -13,9 +13,8 @@ class ProgresoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('interacciones')
+          .collection('analisis')
           .where('estudiante_uid', isEqualTo: estudianteUid)
-          .limit(5)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -33,14 +32,14 @@ class ProgresoScreen extends StatelessWidget {
           );
         }
 
-        final interacciones = snapshot.data?.docs ?? [];
+        final analisisDocs = snapshot.data?.docs ?? [];
 
-        if (interacciones.isEmpty) {
+        if (analisisDocs.isEmpty) {
           return _emptyState();
         }
 
         return FutureBuilder<Map<String, dynamic>>(
-          future: _calcularResumen(interacciones),
+          future: _calcularResumen(analisisDocs),
           builder: (context, resumenSnap) {
             if (!resumenSnap.hasData) {
               return const Center(
@@ -151,7 +150,7 @@ class ProgresoScreen extends StatelessWidget {
   }
 
   Future<Map<String, dynamic>> _calcularResumen(
-    List<QueryDocumentSnapshot> interacciones,
+    List<QueryDocumentSnapshot> analisisDocs,
   ) async {
     int totalRespuestas = 0;
     int sumaGramatica = 0;
@@ -161,63 +160,58 @@ class ProgresoScreen extends StatelessWidget {
 
     List<Map<String, dynamic>> historial = [];
 
-    for (final interaccion in interacciones) {
-      final interaccionId = interaccion.id;
-      final dataInteraccion = interaccion.data() as Map<String, dynamic>;
+    for (final analisisDoc in analisisDocs) {
+      final analisis = analisisDoc.data() as Map<String, dynamic>;
 
-      final respuestasSnap = await FirebaseFirestore.instance
-          .collection('respuestas')
-          .where('interaccion_id', isEqualTo: interaccionId)
-          .limit(5)
-          .get();
-
-      final analisisSnap = await FirebaseFirestore.instance
-          .collection('analisis')
-          .where('interaccion_id', isEqualTo: interaccionId)
-          .limit(1)
-          .get();
-
-      final pronunciacionSnap = await FirebaseFirestore.instance
-          .collection('pronunciacion')
-          .where('interaccion_id', isEqualTo: interaccionId)
-          .limit(1)
-          .get();
-
-      totalRespuestas += respuestasSnap.docs.length;
+      final interaccionId = analisis['interaccion_id'] ?? '';
+      final fecha = analisis['fecha_analisis'];
+      final textoOriginal = analisis['texto_original'] ?? 'Sesión de práctica';
 
       int? gramaticaSesion;
       int? pronunciacionSesion;
+      int respuestasSesion = 0;
 
-      if (analisisSnap.docs.isNotEmpty) {
-        final a = analisisSnap.docs.first.data();
-        final p = a['puntuacion_gramatica'];
-        if (p is num) {
-          gramaticaSesion = p.toInt();
-          sumaGramatica += p.toInt();
-          cantidadGramatica++;
+      final pGram = analisis['puntuacion_gramatica'];
+      if (pGram is num && pGram.toInt() > 0) {
+        gramaticaSesion = pGram.toInt();
+        sumaGramatica += gramaticaSesion;
+        cantidadGramatica++;
+      }
+
+      if (interaccionId.toString().isNotEmpty) {
+        final respuestasSnap = await FirebaseFirestore.instance
+            .collection('respuestas')
+            .where('interaccion_id', isEqualTo: interaccionId)
+            .get();
+
+        respuestasSesion = respuestasSnap.docs.length;
+        totalRespuestas += respuestasSesion;
+
+        final pronunciacionSnap = await FirebaseFirestore.instance
+            .collection('pronunciacion')
+            .where('interaccion_id', isEqualTo: interaccionId)
+            .limit(1)
+            .get();
+
+        if (pronunciacionSnap.docs.isNotEmpty) {
+          final pData = pronunciacionSnap.docs.first.data();
+          final pPron = pData['puntuacion_pronunciacion'];
+
+          if (pPron is num && pPron.toInt() > 0) {
+            pronunciacionSesion = pPron.toInt();
+            sumaPronunciacion += pronunciacionSesion;
+            cantidadPronunciacion++;
+          }
         }
       }
 
-      if (pronunciacionSnap.docs.isNotEmpty) {
-        final pData = pronunciacionSnap.docs.first.data();
-        final p = pData['puntuacion_pronunciacion'];
-        if (p is num) {
-          pronunciacionSesion = p.toInt();
-          sumaPronunciacion += p.toInt();
-          cantidadPronunciacion++;
-        }
-      }
-
-      if (respuestasSnap.docs.isNotEmpty &&
-          (gramaticaSesion != null || pronunciacionSesion != null)) {
-        historial.add({
-          'fecha_inicio': dataInteraccion['fecha_inicio'],
-          'estado': dataInteraccion['estado'] ?? 'finalizada',
-          'respuestas': respuestasSnap.docs.length,
-          'gramatica': gramaticaSesion,
-          'pronunciacion': pronunciacionSesion,
-        });
-      }
+      historial.add({
+        'fecha_inicio': fecha,
+        'texto': textoOriginal,
+        'respuestas': respuestasSesion,
+        'gramatica': gramaticaSesion,
+        'pronunciacion': pronunciacionSesion,
+      });
     }
 
     historial.sort((a, b) {
@@ -239,7 +233,7 @@ class ProgresoScreen extends StatelessWidget {
         : (sumaPronunciacion / cantidadPronunciacion).round();
 
     return {
-      'total_sesiones': interacciones.length,
+      'total_sesiones': analisisDocs.length,
       'total_respuestas': totalRespuestas,
       'promedio_gramatica': promedioGramatica,
       'promedio_pronunciacion': promedioPronunciacion,
@@ -293,8 +287,8 @@ class ProgresoScreen extends StatelessWidget {
           "${f.day}/${f.month}/${f.year} - ${f.hour}:${f.minute.toString().padLeft(2, '0')}";
     }
 
-    final gramatica = item['gramatica'] ?? 0;
-    final pronunciacion = item['pronunciacion'] ?? 0;
+    final gramatica = item['gramatica'];
+    final pronunciacion = item['pronunciacion'];
     final respuestas = item['respuestas'] ?? 0;
 
     return Container(
@@ -333,9 +327,10 @@ class ProgresoScreen extends StatelessWidget {
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
           const SizedBox(height: 14),
-          _miniBarra("Gramática", gramatica, const Color(0xFF1A237E)),
+          _miniBarraNullable("Gramática", gramatica, const Color(0xFF1A237E)),
           const SizedBox(height: 10),
-          _miniBarra("Pronunciación", pronunciacion, const Color(0xFFB71C1C)),
+          _miniBarraNullable(
+              "Pronunciación", pronunciacion, const Color(0xFFB71C1C)),
         ],
       ),
     );
@@ -357,6 +352,60 @@ class ProgresoScreen extends StatelessWidget {
             ),
             Text(
               "$valor%",
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        LinearProgressIndicator(
+          value: v,
+          minHeight: 7,
+          backgroundColor: Colors.grey.shade200,
+          valueColor: AlwaysStoppedAnimation<Color>(color),
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ],
+    );
+  }
+
+  Widget _miniBarraNullable(String label, dynamic valor, Color color) {
+    if (valor == null) {
+      return Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ),
+          const Text(
+            "Pendiente",
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      );
+    }
+
+    final numero = valor is num ? valor.toInt() : 0;
+    final v = (numero / 100).clamp(0.0, 1.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+            ),
+            Text(
+              "$numero%",
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
