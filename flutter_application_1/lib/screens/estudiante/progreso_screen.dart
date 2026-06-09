@@ -120,7 +120,7 @@ class ProgresoScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _resumenHabilidades(
+                  _diagnosticoProgreso(
                     promedioGramatica: promedioGramatica,
                     promedioPronunciacion: promedioPronunciacion,
                   ),
@@ -239,6 +239,101 @@ class ProgresoScreen extends StatelessWidget {
       'promedio_pronunciacion': promedioPronunciacion,
       'historial': historial,
     };
+  }
+
+  Widget _diagnosticoProgreso({
+    required int promedioGramatica,
+    required int promedioPronunciacion,
+  }) {
+    String fortaleza = "Sin datos suficientes";
+    String mejora = "Realizar más prácticas";
+
+    if (promedioGramatica > promedioPronunciacion) {
+      fortaleza = "Gramática";
+      mejora = "Pronunciación";
+    } else if (promedioPronunciacion > promedioGramatica) {
+      fortaleza = "Pronunciación";
+      mejora = "Gramática";
+    } else if (promedioGramatica > 0 && promedioPronunciacion > 0) {
+      fortaleza = "Desempeño equilibrado";
+      mejora = "Mantener práctica constante";
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Diagnóstico del progreso",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1A237E),
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _diagnosticoItem(
+            Icons.emoji_events,
+            "Fortaleza principal",
+            fortaleza,
+            const Color(0xFFF9A825),
+          ),
+          const SizedBox(height: 12),
+          _diagnosticoItem(
+            Icons.trending_up,
+            "Área a mejorar",
+            mejora,
+            const Color(0xFFB71C1C),
+          ),
+          const SizedBox(height: 12),
+          _diagnosticoItem(
+            Icons.school,
+            "Estado",
+            "En progreso",
+            const Color(0xFF1A237E),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diagnosticoItem(
+    IconData icono,
+    String titulo,
+    String valor,
+    Color color,
+  ) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: color.withOpacity(0.12),
+          child: Icon(icono, color: color, size: 18),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                titulo,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              Text(
+                valor,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A237E),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _resumenHabilidades({
@@ -382,8 +477,10 @@ class ProgresoScreen extends StatelessWidget {
               style: const TextStyle(fontSize: 12, color: Colors.black87),
             ),
           ),
-          const Text(
-            "Pendiente",
+          Text(
+            label == "Gramática"
+                ? "Sin evaluación escrita"
+                : "Sin evaluación oral",
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
         ],
