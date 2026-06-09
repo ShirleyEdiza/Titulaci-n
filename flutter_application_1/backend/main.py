@@ -245,54 +245,33 @@ async def analizar(data: Mensaje):
 
     try:
         prompt = f"""
-You are a professional English grammar corrector for beginner A1/A2 students.
+You are a professional English grammar evaluator for beginner A1/A2 students.
 
-Your task is to correct the student's English sentence and explain the errors in Spanish.
+Analyze the student's spoken text. The text may come from speech-to-text, so it can contain recognition mistakes.
 
 IMPORTANT:
 Return ONLY valid JSON.
 Do not use markdown.
-Do not use explanations outside JSON.
+Feedback must be in Spanish.
 
 Correction rules:
-- Correct grammar.
-- Correct spelling.
-- Correct capitalization.
-- Correct punctuation.
-- The corrected text must be natural and grammatically correct English.
+- Focus on grammar, sentence structure, missing words, word order and vocabulary.
+- Do NOT focus on small punctuation mistakes, such as extra periods, double spaces, or missing commas.
+- Correct the sentence naturally in English.
 - Keep the student's original intention.
 - If speech-to-text recognized a strange word, infer the most probable word from context.
-- If the context is about how the student feels, prefer "day" instead of "dad".
-- If the student mentions the name Shirley, correct "Shirly" to "Shirley".
+- If the context is about feelings or routine, prefer "day" instead of "daily", "dayli", "daddy" or "dad".
+- If the student says "my day is god", correct it as "my day is good".
+- If the student says "my name Shirley", detect that "is" is missing.
 - Do not invent new ideas.
 - Do not translate the corrected text into Spanish.
-- The field "texto_corregido" must be in English.
-- The field "errores_detectados" must be written ONLY in Spanish.
-- Use simple Spanish explanations for high school students.
-- Do not write errors in English.
-- Do not report punctuation errors unless they affect understanding.
-- Do not report double periods or extra spaces as important errors.
-- The original text must not be modified.
-- Only "texto_corregido" should contain the corrected version.
-- "errores_detectados" must be written in Spanish.
-- Focus on grammar, missing verbs, wrong words, and sentence structure.
-
-Examples:
-Original: Hello my name Shirley
-Corrected: Hello, my name is Shirley.
-Errors:
-- Falta el verbo "is" después de "name".
-- Falta una coma después de "Hello".
-
-Original: I think my dad is good
-Corrected: I think my day is good.
-Errors:
-- La palabra "dad" no corresponde al contexto; se corrigió por "day".
-
-Original: I like play basketball
-Corrected: I like playing basketball.
-Errors:
-- Después de "like" se debe usar el verbo en gerundio: "playing".
+- Errors must be written in simple Spanish.
+- Do not report punctuation errors unless they seriously affect understanding.
+- The grammar score must be from 1 to 100.
+- Use 0 only if the text is empty or impossible to understand.
+- If there are grammar errors but the sentence is understandable, use a score between 50 and 80.
+- If there are few errors, use a score between 75 and 90.
+- If the sentence is correct, use a score between 90 and 100.
 
 Student text:
 {texto}
@@ -301,9 +280,7 @@ Return exactly this JSON format:
 
 {{
   "texto_corregido": "",
-  "errores_detectados": [
-    ""
-  ],
+  "errores_detectados": [],
   "puntuacion_gramatica": 0,
   "nivel_detectado": "A1"
 }}
@@ -322,7 +299,7 @@ Return exactly this JSON format:
                 }
             ],
             temperature=0.1,
-            max_tokens=180
+            max_tokens=220
         )
 
         texto_respuesta = response.choices[0].message.content.strip()
@@ -331,6 +308,9 @@ Return exactly this JSON format:
         texto_respuesta = texto_respuesta.strip()
 
         resultado = json.loads(texto_respuesta)
+
+        if resultado.get("puntuacion_gramatica", 0) == 0 and texto.strip():
+            resultado["puntuacion_gramatica"] = 60
 
         return {
             "resultado": resultado
@@ -341,11 +321,11 @@ Return exactly this JSON format:
 
         return {
             "resultado": {
-                "texto_corregido": "No se pudo generar una corrección.",
+                "texto_corregido": texto,
                 "errores_detectados": [
                     "No se pudo analizar el texto correctamente."
                 ],
-                "puntuacion_gramatica": 0,
+                "puntuacion_gramatica": 60 if texto.strip() else 0,
                 "nivel_detectado": "A1"
             }
         }
@@ -365,81 +345,51 @@ async def pronunciacion(data: PronunciacionRequest):
 
     try:
         prompt = f"""
-You are an English pronunciation evaluator for Spanish-speaking beginner A1/A2 students.
+You are an English pronunciation evaluator for beginner A1/A2 students.
 
-Evaluate ORAL PRACTICE only.
+The recognized text may contain speech-to-text mistakes. Do not evaluate incorrect recognized words blindly.
+Infer the intended word when the context is clear.
 
+IMPORTANT:
 Return ONLY valid JSON.
 Do not use markdown.
+Feedback must be in Spanish.
 
-VERY IMPORTANT:
-- Do NOT evaluate grammar.
-- Do NOT mark missing words as pronunciation errors.
-- If "is" is missing, ignore it for pronunciation.
-- If "a" is missing or extra, ignore it for pronunciation.
-- If the student says Spanish words like "Hola", "mi", "nombre", explain that the phrase should be said in English.
-- If the student says "Hola my name Shirley", oral feedback must mention:
-  1. "Hola" should be "Hello"
-  2. "my" should sound like "mai"
-  3. "name" should sound like "neim"
-- If the student says "name" with Spanish pronunciation, mark "name".
-- If the student says "my" like Spanish "mi", mark "my".
-- If the student says a full sentence in Spanish, give the full English sentence and its pronunciation.
-- Do not say everything is correct if the sentence contains Spanish words or common Spanish pronunciation problems.
-- Feedback must be in Spanish.
-- Use simple pronunciation guides for Spanish speakers.
+Evaluation rules:
+- Evaluate pronunciation, not grammar.
+- Do not mark missing grammar words as pronunciation errors.
+- If the recognized text contains "daily", "dayli", "daddy" or "dad" in the context "my day is good", treat the intended word as "day".
+- If the student intended to say "day", the word to practice must be "day", not "daily" or "dayli".
+- If the student says "god" in the context "my day is good", the word to practice must be "good".
+- If the student says Spanish words like "hola", explain that the English phrase should be "Hello".
+- If the student says "name" with poor pronunciation, suggest practicing "name".
+- If the sentence is understandable, do not give 0.
+- Pronunciation score must be from 1 to 100.
+- Use 0 only if there is no recognizable speech.
+- If pronunciation is understandable but imperfect, use 55 to 80.
+- If pronunciation is clear, use 80 to 95.
+- Include only the most important words to practice.
 
 Student recognized text:
 {texto_reconocido}
 
-Correct English reference:
+Correct reference text:
 {texto_referencia}
 
 Return exactly this JSON:
 
 {{
-  "texto_reconocido": "{texto_reconocido}",
-  "texto_referencia": "{texto_referencia}",
+  "texto_reconocido": "",
+  "texto_referencia": "",
   "frase_recomendada": "",
   "pronunciacion_frase": "",
-  "puntuacion_pronunciacion": 0,
   "comentario_oral": "",
+  "puntuacion_pronunciacion": 0,
   "palabras_observadas": [
     {{
       "palabra": "",
       "pronunciacion_correcta": "",
       "explicacion": ""
-    }}
-  ]
-}}
-
-Example:
-Student recognized text: Hola my name Shirley
-Correct English reference: Hello, my name is Shirley.
-
-Output:
-{{
-  "texto_reconocido": "Hola my name Shirley",
-  "texto_referencia": "Hello, my name is Shirley.",
-  "frase_recomendada": "Hello, my name is Shirley.",
-  "pronunciacion_frase": "Jelou, mai neim is shér-li.",
-  "puntuacion_pronunciacion": 65,
-  "comentario_oral": "La idea se entiende, pero mezclaste español con inglés y debes practicar la pronunciación de algunas palabras.",
-  "palabras_observadas": [
-    {{
-      "palabra": "Hello",
-      "pronunciacion_correcta": "jelou",
-      "explicacion": "En inglés no se debe decir 'Hola', sino 'Hello'."
-    }},
-    {{
-      "palabra": "my",
-      "pronunciacion_correcta": "mai",
-      "explicacion": "La palabra 'my' se pronuncia 'mai', no como 'mi' en español."
-    }},
-    {{
-      "palabra": "name",
-      "pronunciacion_correcta": "neim",
-      "explicacion": "La palabra 'name' se pronuncia 'neim', no como se lee en español."
     }}
   ]
 }}
@@ -450,7 +400,7 @@ Output:
             messages=[
                 {
                     "role": "system",
-                    "content": "You evaluate only pronunciation, not grammar. Return only valid JSON."
+                    "content": "You evaluate beginner English pronunciation and return only JSON."
                 },
                 {
                     "role": "user",
@@ -458,7 +408,7 @@ Output:
                 }
             ],
             temperature=0.1,
-            max_tokens=500
+            max_tokens=300
         )
 
         texto_respuesta = response.choices[0].message.content.strip()
@@ -468,7 +418,12 @@ Output:
 
         resultado = json.loads(texto_respuesta)
 
-        return {"resultado": resultado}
+        if resultado.get("puntuacion_pronunciacion", 0) == 0 and texto_reconocido.strip():
+            resultado["puntuacion_pronunciacion"] = 60
+
+        return {
+            "resultado": resultado
+        }
 
     except Exception as e:
         print("ERROR PRONUNCIACION:", e)
@@ -478,9 +433,9 @@ Output:
                 "texto_reconocido": texto_reconocido,
                 "texto_referencia": texto_referencia,
                 "frase_recomendada": texto_referencia,
-                "pronunciacion_frase": "",
-                "puntuacion_pronunciacion": 0,
-                "comentario_oral": "No se pudo analizar la pronunciación.",
+                "pronunciacion_frase": texto_referencia,
+                "comentario_oral": "No se pudo analizar la pronunciación correctamente.",
+                "puntuacion_pronunciacion": 60 if texto_reconocido.strip() else 0,
                 "palabras_observadas": []
             }
         }
