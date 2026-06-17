@@ -87,14 +87,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             onRecuperar: recuperar,
                           ),
                   ),
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text("Volver al inicio de sesión",
+                  if (!enviado) ...[
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text(
+                        "Volver al inicio de sesión",
                         style: TextStyle(
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w500)),
-                  ),
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -233,12 +238,21 @@ class _PantallaEnviado extends StatelessWidget {
       children: [
         const Icon(Icons.mark_email_read, size: 60, color: Color(0xFF1B5E20)),
         const SizedBox(height: 16),
-        const Text("¡Correo enviado!",
+        const Text("¡Correo enviado correctamente!",
             style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF1A237E))),
         const SizedBox(height: 8),
+        const SizedBox(height: 8),
+        const Text(
+          "Por seguridad, después de actualizar tu contraseña deberás volver a iniciar sesión.",
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+          ),
+        ),
         Text(
           "Enviamos el enlace de recuperación a:\n$email",
           textAlign: TextAlign.center,

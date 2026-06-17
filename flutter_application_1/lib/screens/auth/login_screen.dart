@@ -20,10 +20,22 @@ class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService();
   bool loading = false;
   bool obscurePassword = true;
+  String? _errorGeneral;
+
+  void _mostrarError(String mensaje) {
+    setState(() {
+      _errorGeneral = mensaje;
+    });
+  }
 
   Future<void> login() async {
-    if (emailController.text.isEmpty || passwordController.text.isEmpty) {
-      CustomSnackbar.warning(context, "Completa todos los campos");
+    if (emailController.text.trim().isEmpty) {
+      _mostrarError("El campo correo electrónico está vacío.");
+      return;
+    }
+
+    if (passwordController.text.trim().isEmpty) {
+      _mostrarError("El campo contraseña está vacío.");
       return;
     }
 
@@ -47,11 +59,10 @@ class _LoginScreenState extends State<LoginScreen> {
             context, MaterialPageRoute(builder: (_) => const HomeDocente()));
       } else {
         Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const HomeEstudiante()));
+            context, MaterialPageRoute(builder: (_) => const HomeEstudiante()));
       }
     } else {
-      CustomSnackbar.error(context, result['message']);
+      _mostrarError(result['message']);
     }
   }
 
@@ -145,13 +156,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const Text(
                           "Ingresa tus credenciales para continuar",
-                          style:
-                              TextStyle(fontSize: 12, color: Colors.grey),
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
                         ),
                         const SizedBox(height: 24),
                         TextField(
                           controller: emailController,
                           keyboardType: TextInputType.emailAddress,
+                          onChanged: (_) => setState(() {
+                            _errorGeneral = null;
+                          }),
                           decoration: InputDecoration(
                             labelText: "Correo electrónico",
                             prefixIcon: const Icon(Icons.email,
@@ -169,6 +182,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         TextField(
                           controller: passwordController,
                           obscureText: obscurePassword,
+                          onChanged: (_) => setState(() {
+                            _errorGeneral = null;
+                          }),
                           decoration: InputDecoration(
                             labelText: "Contraseña",
                             prefixIcon: const Icon(Icons.lock,
@@ -188,8 +204,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 color: const Color(0xFF1A237E),
                               ),
                               onPressed: () => setState(
-                                  () =>
-                                      obscurePassword = !obscurePassword),
+                                  () => obscurePassword = !obscurePassword),
                             ),
                           ),
                         ),
@@ -199,17 +214,44 @@ class _LoginScreenState extends State<LoginScreen> {
                             onPressed: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) =>
-                                      const ForgotPasswordScreen()),
+                                  builder: (_) => const ForgotPasswordScreen()),
                             ),
                             child: const Text(
                               "¿Olvidaste tu contraseña?",
-                              style:
-                                  TextStyle(color: Color(0xFFB71C1C)),
+                              style: TextStyle(color: Color(0xFFB71C1C)),
                             ),
                           ),
                         ),
                         const SizedBox(height: 8),
+                        if (_errorGeneral != null)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.red.shade200),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.error_outline,
+                                    color: Colors.red, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _errorGeneral!,
+                                    style: const TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         SizedBox(
                           width: double.infinity,
                           height: 50,

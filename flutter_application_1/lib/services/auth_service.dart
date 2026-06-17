@@ -13,7 +13,7 @@ class AuthService {
   }
 
   String _idIntento(String email) {
-    return _normalizarEmail(email).replaceAll('.', '_');
+    return _normalizarEmail(email).replaceAll('.', '_').replaceAll('@', '_');
   }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -22,7 +22,9 @@ class AuthService {
         _db.collection('intentos_login').doc(_idIntento(emailNormalizado));
 
     try {
-      final intentoDoc = await intentoRef.get();
+      // 1. Primero validar si está bloqueado.
+      final intentoDoc =
+          await intentoRef.get().timeout(const Duration(seconds: 5));
 
       if (intentoDoc.exists) {
         final data = intentoDoc.data() ?? {};
@@ -42,15 +44,18 @@ class AuthService {
                   'Cuenta bloqueada. Intenta en $minutosRestantes minutos.',
             };
           } else {
-            await intentoRef.delete();
+            await intentoRef.delete().timeout(const Duration(seconds: 3));
           }
         }
       }
 
-      final userCredential = await _auth.signInWithEmailAndPassword(
-        email: emailNormalizado,
-        password: password,
-      );
+      // 2. Autenticación con Firebase.
+      final userCredential = await _auth
+          .signInWithEmailAndPassword(
+            email: emailNormalizado,
+            password: password,
+          )
+          .timeout(const Duration(seconds: 10));
 
       final user = userCredential.user;
 
@@ -61,7 +66,12 @@ class AuthService {
         };
       }
 
-      final userDoc = await _db.collection('usuarios').doc(user.uid).get();
+      // 3. Leer datos del usuario por UID.
+      final userDoc = await _db
+          .collection('usuarios')
+          .doc(user.uid)
+          .get()
+          .timeout(const Duration(seconds: 6));
 
       if (!userDoc.exists) {
         await _auth.signOut();
@@ -71,7 +81,7 @@ class AuthService {
         };
       }
 
-      final data = userDoc.data() as Map<String, dynamic>;
+      final data = userDoc.data() ?? {};
 
       final activo = data['activo'] ?? true;
 
@@ -83,7 +93,8 @@ class AuthService {
         };
       }
 
-      await intentoRef.delete().catchError((_) {});
+      // 4. Limpia intentos, pero no bloquea el login si falla.
+      intentoRef.delete().catchError((_) {});
 
       return {
         'success': true,
@@ -91,9 +102,14 @@ class AuthService {
         'usuario': UsuarioModel.fromMap(user.uid, data),
       };
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'wrong-password' ||
-          e.code == 'invalid-credential' ||
-          e.code == 'user-not-found') {
+      if (e.code == 'user-not-found') {
+        return {
+          'success': false,
+          'message': 'El correo ingresado no existe.',
+        };
+      }
+
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
         final restantes = await _registrarIntentoFallido(
           intentoRef,
           emailNormalizado,
@@ -109,8 +125,7 @@ class AuthService {
 
         return {
           'success': false,
-          'message':
-              'Correo o contraseña incorrectos. Te quedan $restantes intentos.',
+          'message': 'Contraseña incorrecta. Te quedan $restantes intentos.',
         };
       }
 
@@ -135,7 +150,8 @@ class AuthService {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Error al conectar con el servidor.',
+        'message':
+            'No se pudo conectar. Revisa tu internet e intenta nuevamente.',
       };
     }
   }
@@ -144,28 +160,34 @@ class AuthService {
     DocumentReference<Map<String, dynamic>> intentoRef,
     String email,
   ) async {
-    final doc = await intentoRef.get();
+    try {
+      final doc = await intentoRef.get().timeout(const Duration(seconds: 4));
 
-    int intentos = 1;
+      int intentos = 1;
 
-    if (doc.exists) {
-      final data = doc.data() ?? {};
-      intentos = ((data['intentos'] ?? 0) as int) + 1;
+      if (doc.exists) {
+        final data = doc.data() ?? {};
+        final valor = data['intentos'] ?? 0;
+        intentos = valor is int ? valor + 1 : 1;
+      }
+
+      final bloqueado = intentos >= maxIntentos;
+
+      await intentoRef.set({
+        'email': email,
+        'intentos': intentos,
+        'bloqueado': bloqueado,
+        'ultima_vez': FieldValue.serverTimestamp(),
+        if (bloqueado)
+          'bloqueo_hasta': Timestamp.fromDate(
+            DateTime.now().add(const Duration(minutes: 15)),
+          ),
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 4));
+
+      return maxIntentos - intentos;
+    } catch (_) {
+      return maxIntentos - 1;
     }
-
-    final bloqueado = intentos >= maxIntentos;
-
-    await intentoRef.set({
-      'email': email,
-      'intentos': intentos,
-      'bloqueado': bloqueado,
-      'ultima_vez': FieldValue.serverTimestamp(),
-      if (bloqueado)
-        'bloqueo_hasta':
-            Timestamp.fromDate(DateTime.now().add(const Duration(minutes: 15))),
-    }, SetOptions(merge: true));
-
-    return maxIntentos - intentos;
   }
 
   Future<Map<String, dynamic>> register(
@@ -176,10 +198,12 @@ class AuthService {
     try {
       final emailNormalizado = _normalizarEmail(email);
 
-      final userCredential = await _auth.createUserWithEmailAndPassword(
-        email: emailNormalizado,
-        password: password,
-      );
+      final userCredential = await _auth
+          .createUserWithEmailAndPassword(
+            email: emailNormalizado,
+            password: password,
+          )
+          .timeout(const Duration(seconds: 10));
 
       await _db.collection('usuarios').doc(userCredential.user!.uid).set({
         'email': emailNormalizado,
@@ -187,7 +211,7 @@ class AuthService {
         'rol': 'estudiante',
         'activo': true,
         'fecha_registro': FieldValue.serverTimestamp(),
-      });
+      }).timeout(const Duration(seconds: 6));
 
       return {'success': true};
     } on FirebaseAuthException catch (e) {
@@ -203,6 +227,11 @@ class AuthService {
       }
 
       return {'success': false, 'message': message};
+    } catch (_) {
+      return {
+        'success': false,
+        'message': 'No se pudo completar el registro. Revisa tu conexión.',
+      };
     }
   }
 
@@ -210,7 +239,9 @@ class AuthService {
     try {
       final emailNormalizado = _normalizarEmail(email);
 
-      await _auth.sendPasswordResetEmail(email: emailNormalizado);
+      await _auth
+          .sendPasswordResetEmail(email: emailNormalizado)
+          .timeout(const Duration(seconds: 10));
 
       return {
         'success': true,
@@ -226,6 +257,11 @@ class AuthService {
       }
 
       return {'success': false, 'message': 'Error al enviar correo'};
+    } catch (_) {
+      return {
+        'success': false,
+        'message': 'No se pudo enviar el correo. Revisa tu conexión.',
+      };
     }
   }
 

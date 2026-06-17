@@ -373,6 +373,20 @@ Evaluation rules:
 - If pronunciation is understandable but imperfect, use 55 to 80.
 - If pronunciation is clear, use 80 to 95.
 - Include only the most important words to practice.
+-If the student speaks in Spanish,
+generate a corrected English sentence and provide its pronunciation guide.
+-If the student uses Spanish words:
+- Convert them to the most appropriate English equivalent.
+- The word to practice must be the English word.
+- Never use the Spanish word as the pronunciation target.
+
+Examples:
+
+Hola -> Hello
+Buenos días -> Good morning
+Mi nombre -> My name
+Gracias -> Thank you
+Adiós -> Goodbye
 
 Student recognized text:
 {texto_reconocido}

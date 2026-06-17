@@ -22,6 +22,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   // Error del nombre en tiempo real
   String? _errorNombre;
+  String? _errorGeneral;
 
   // ─── Validaciones de nombre ───────────────────────────────
   String? _validarNombre(String nombre) {
@@ -67,35 +68,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (nombreController.text.isEmpty || errorNombre != null) {
       setState(
           () => _errorNombre = errorNombre ?? "Ingresa tu nombre completo");
-      _showSnack(_errorNombre!);
+      _mostrarError(_errorNombre!);
       return;
     }
 
     // Validar email
     if (emailController.text.isEmpty) {
-      _showSnack("Ingresa tu correo electrónico");
+      _mostrarError("Ingresa tu correo electrónico");
       return;
     }
 
     // Validar contraseña
     if (passwordController.text.isEmpty) {
-      _showSnack("Ingresa una contraseña");
+      _mostrarError("Ingresa una contraseña");
       return;
     }
 
     if (!passwordValida) {
-      _showSnack("La contraseña no cumple los requisitos de seguridad");
+      _mostrarError("La contraseña no cumple los requisitos de seguridad");
       return;
     }
 
     // Validar confirmación
     if (confirmPasswordController.text.isEmpty) {
-      _showSnack("Confirma tu contraseña");
+      _mostrarError("Confirma tu contraseña");
       return;
     }
 
     if (passwordController.text != confirmPasswordController.text) {
-      _showSnack("Las contraseñas no coinciden");
+      _mostrarError("Las contraseñas no coinciden");
       return;
     }
 
@@ -131,7 +132,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       } else if (e.code == 'invalid-email') {
         message = "Correo inválido";
       }
-      _showSnack(message);
+      _mostrarError(message);
     }
 
     setState(() => loading = false);
@@ -139,6 +140,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _mostrarError(String msg) {
+    setState(() {
+      _errorGeneral = msg;
+    });
   }
 
   // ─── Widget requisito contraseña ──────────────────────────
@@ -242,6 +249,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           onChanged: (value) {
                             setState(() {
                               _errorNombre = _validarNombre(value);
+                              _errorGeneral = null;
                             });
                           },
                           decoration: InputDecoration(
@@ -293,6 +301,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           hint: "Ej: ana@gmail.com",
                           icon: Icons.email,
                           keyboard: TextInputType.emailAddress,
+                          onChanged: (_) => setState(() {
+                            _errorGeneral = null;
+                          }),
                         ),
                         const SizedBox(height: 14),
 
@@ -305,7 +316,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           visible: _passwordVisible,
                           onToggle: () => setState(
                               () => _passwordVisible = !_passwordVisible),
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => setState(() {
+                            _errorGeneral = null;
+                          }),
                         ),
 
                         // Requisitos contraseña
@@ -355,7 +368,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           onToggle: () => setState(() =>
                               _confirmPasswordVisible =
                                   !_confirmPasswordVisible),
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => setState(() {
+                            _errorGeneral = null;
+                          }),
                         ),
 
                         // Indicador coincidencia
@@ -394,7 +409,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
 
                         const SizedBox(height: 24),
-
+                        // ── Mensaje de error bonito ───────
+                        if (_errorGeneral != null)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.red.shade200),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _errorGeneral!,
+                                    style: const TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         // ── Botón Registrar ───────────────
                         SizedBox(
                           width: double.infinity,
