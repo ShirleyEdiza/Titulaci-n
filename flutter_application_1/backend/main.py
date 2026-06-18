@@ -477,7 +477,10 @@ async def recuperar_password(data: dict):
     email = data.get("email", "").strip().lower()
 
     if not email:
-        return {"success": False, "message": "El correo electrónico es obligatorio."}
+        return {
+            "success": False,
+            "message": "El correo electrónico es obligatorio."
+        }
 
     try:
         action_settings = auth.ActionCodeSettings(
@@ -499,15 +502,24 @@ async def recuperar_password(data: dict):
         <p>SpeakApp</p>
         """
 
-        msg = MIMEText(cuerpo, "html")
-        msg["Subject"] = "Restablecer contraseña - SpeakApp"
-        msg["From"] = os.getenv("SMTP_EMAIL")
-        msg["To"] = email
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {os.getenv('RESEND_API_KEY')}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": "SpeakApp <onboarding@resend.dev>",
+                "to": [email],
+                "subject": "Restablecer contraseña - SpeakApp",
+                "html": cuerpo,
+            },
+            timeout=10,
+        )
 
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-           server.starttls()
-           server.login(os.getenv("SMTP_EMAIL"), os.getenv("SMTP_PASSWORD"))
-           server.send_message(msg)
+        if response.status_code >= 300:
+            print("ERROR RESEND:", response.text)
+            raise Exception("No se pudo enviar el correo")
 
         return {
             "success": True,
