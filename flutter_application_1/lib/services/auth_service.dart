@@ -1,8 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/usuario_model.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -258,28 +256,28 @@ class AuthService {
     try {
       final emailNormalizado = _normalizarEmail(email);
 
-      final response = await http
-          .post(
-            Uri.parse('https://titulaci-n.onrender.com/recuperar-password'),
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode({
-              'email': emailNormalizado,
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      final data = jsonDecode(response.body);
+      await _auth
+          .sendPasswordResetEmail(email: emailNormalizado)
+          .timeout(const Duration(seconds: 10));
 
       return {
-        'success': data['success'] ?? false,
-        'message': data['message'] ?? 'No se pudo enviar el correo.',
+        'success': true,
+        'message': 'Correo de recuperación enviado a $emailNormalizado',
       };
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        return {'success': false, 'message': 'Correo no registrado'};
+      }
+
+      if (e.code == 'invalid-email') {
+        return {'success': false, 'message': 'Correo inválido'};
+      }
+
+      return {'success': false, 'message': 'Error al enviar correo'};
     } catch (_) {
       return {
         'success': false,
-        'message': 'No se pudo conectar con el servidor.',
+        'message': 'No se pudo enviar el correo. Revisa tu conexión.',
       };
     }
   }
