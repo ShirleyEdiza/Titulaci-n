@@ -7,8 +7,22 @@ import os
 import random
 import requests
 import json
+import smtplib
+from email.mime.text import MIMEText
+from firebase_admin import credentials, initialize_app, auth
+
 
 app = FastAPI()
+
+# =========================
+# FIREBASE ADMIN
+# =========================
+
+try:
+    cred = credentials.Certificate("/etc/secrets/firebase-admin.json")
+    initialize_app(cred)
+except Exception as e:
+    print("FIREBASE ADMIN ERROR:", e)
 
 # =========================
 # OPENAI
@@ -456,4 +470,51 @@ Return exactly this JSON:
                 "puntuacion_pronunciacion": 60 if texto_reconocido.strip() else 0,
                 "palabras_observadas": []
             }
+        }
+@app.post("/recuperar-password")
+async def recuperar_password(data: dict):
+    email = data.get("email", "").strip().lower()
+
+    if not email:
+        return {"success": False, "message": "El correo electrónico es obligatorio."}
+
+    try:
+        action_settings = auth.ActionCodeSettings(
+            url="https://asistente-conversacional-bdebb.web.app/reset-password.html",
+            handle_code_in_app=False,
+        )
+
+        link = auth.generate_password_reset_link(email, action_settings)
+
+        cuerpo = f"""
+        <p>Hola,</p>
+        <p>Haz clic en el siguiente botón para restablecer tu contraseña:</p>
+        <p>
+          <a href="{link}" style="background:#B71C1C;color:white;padding:12px 18px;text-decoration:none;border-radius:8px;">
+            Restablecer contraseña
+          </a>
+        </p>
+        <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+        <p>SpeakApp</p>
+        """
+
+        msg = MIMEText(cuerpo, "html")
+        msg["Subject"] = "Restablecer contraseña - SpeakApp"
+        msg["From"] = os.getenv("SMTP_EMAIL")
+        msg["To"] = email
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(os.getenv("SMTP_EMAIL"), os.getenv("SMTP_PASSWORD"))
+            server.send_message(msg)
+
+        return {
+            "success": True,
+            "message": "Correo de recuperación enviado correctamente.",
+        }
+
+    except Exception as e:
+        print("ERROR RECUPERAR PASSWORD:", e)
+        return {
+            "success": False,
+            "message": "No se pudo enviar el correo de recuperación.",
         }

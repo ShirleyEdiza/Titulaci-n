@@ -78,6 +78,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    final existeCorreo = await FirebaseFirestore.instance
+        .collection("usuarios")
+        .where("email", isEqualTo: emailController.text.trim().toLowerCase())
+        .limit(1)
+        .get();
+
+    if (existeCorreo.docs.isNotEmpty) {
+      _mostrarError("El correo electrónico ingresado ya está registrado.");
+      return;
+    }
+
     // Validar contraseña
     if (passwordController.text.isEmpty) {
       _mostrarError("Ingresa una contraseña");
@@ -121,7 +132,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
 
       if (!mounted) return;
-      _showSnack("¡Cuenta creada exitosamente!");
+      _mostrarExito(
+          "Cuenta creada correctamente. Ahora puedes iniciar sesión.");
+
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (!mounted) return;
       Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
       String message = "Error al registrar";
@@ -133,18 +149,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         message = "Correo inválido";
       }
       _mostrarError(message);
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
     }
-
-    setState(() => loading = false);
   }
 
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  bool _esError = true;
+
+  void _mostrarExito(String msg) {
+    setState(() {
+      _errorGeneral = msg;
+      _esError = false;
+    });
   }
 
   void _mostrarError(String msg) {
     setState(() {
       _errorGeneral = msg;
+      _esError = true;
     });
   }
 
@@ -416,24 +440,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             margin: const EdgeInsets.only(bottom: 14),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.red.shade50,
+                              color: _esError
+                                  ? Colors.red.shade50
+                                  : Colors.green.shade50,
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.red.shade200),
+                              border: Border.all(
+                                color: _esError
+                                    ? Colors.red.shade200
+                                    : Colors.green.shade200,
+                              ),
                             ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(
-                                  Icons.error_outline,
-                                  color: Colors.red,
+                                Icon(
+                                  _esError
+                                      ? Icons.error_outline
+                                      : Icons.check_circle_outline,
+                                  color: _esError ? Colors.red : Colors.green,
                                   size: 20,
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     _errorGeneral!,
-                                    style: const TextStyle(
-                                      color: Colors.red,
+                                    style: TextStyle(
+                                      color:
+                                          _esError ? Colors.red : Colors.green,
                                       fontSize: 13,
                                       fontWeight: FontWeight.w500,
                                     ),

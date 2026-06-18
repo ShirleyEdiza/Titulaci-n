@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/services/auth_service.dart';
-import 'package:flutter_application_1/widgets/custom_snackbar.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -14,10 +13,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final AuthService _authService = AuthService();
   bool loading = false;
   bool enviado = false;
+  String? mensaje;
+  bool esError = false;
 
   Future<void> recuperar() async {
-    if (emailController.text.isEmpty) {
-      CustomSnackbar.warning(context, "Ingresa tu correo electrónico");
+    if (emailController.text.trim().isEmpty) {
+      setState(() {
+        mensaje = "El campo correo electrónico está vacío.";
+        esError = true;
+      });
       return;
     }
 
@@ -30,11 +34,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
 
     if (!mounted) return;
-    if (result['success']) {
-      CustomSnackbar.success(context, result['message']);
-    } else {
-      CustomSnackbar.error(context, result['message']);
-    }
+    setState(() {
+      mensaje = result['message'];
+      esError = !result['success'];
+    });
   }
 
   @override
@@ -85,6 +88,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             emailController: emailController,
                             loading: loading,
                             onRecuperar: recuperar,
+                            mensaje: mensaje,
+                            esError: esError,
+                            onChanged: (_) {
+                              setState(() {
+                                mensaje = null;
+                              });
+                            },
                           ),
                   ),
                   if (!enviado) ...[
@@ -111,14 +121,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 }
 
 class _FormularioRecuperar extends StatelessWidget {
+  final String? mensaje;
+  final bool esError;
   final TextEditingController emailController;
   final bool loading;
   final VoidCallback onRecuperar;
+  final Function(String)? onChanged;
 
   const _FormularioRecuperar({
+    required this.mensaje,
+    required this.esError,
     required this.emailController,
     required this.loading,
     required this.onRecuperar,
+    required this.onChanged,
   });
 
   @override
@@ -193,6 +209,7 @@ class _FormularioRecuperar extends StatelessWidget {
         TextField(
           controller: emailController,
           keyboardType: TextInputType.emailAddress,
+          onChanged: onChanged,
           decoration: InputDecoration(
             labelText: "Correo electrónico",
             prefixIcon: const Icon(Icons.email, color: Color(0xFFB71C1C)),
@@ -204,6 +221,40 @@ class _FormularioRecuperar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 20),
+        if (mensaje != null)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: esError ? Colors.red.shade50 : Colors.green.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: esError ? Colors.red.shade200 : Colors.green.shade200,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  esError ? Icons.error_outline : Icons.check_circle_outline,
+                  color: esError ? Colors.red : Colors.green,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    mensaje!,
+                    style: TextStyle(
+                      color: esError ? Colors.red : Colors.green,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         SizedBox(
           width: double.infinity,
           height: 50,

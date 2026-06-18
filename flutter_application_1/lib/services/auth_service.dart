@@ -16,6 +16,23 @@ class AuthService {
     return _normalizarEmail(email).replaceAll('.', '_').replaceAll('@', '_');
   }
 
+  Future<bool> correoExiste(String email) async {
+    try {
+      final emailNormalizado = _normalizarEmail(email);
+
+      final query = await _db
+          .collection('usuarios')
+          .where('email', isEqualTo: emailNormalizado)
+          .limit(1)
+          .get()
+          .timeout(const Duration(seconds: 3));
+
+      return query.docs.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<Map<String, dynamic>> login(String email, String password) async {
     final emailNormalizado = _normalizarEmail(email);
     final intentoRef =
@@ -239,8 +256,17 @@ class AuthService {
     try {
       final emailNormalizado = _normalizarEmail(email);
 
+      final actionCodeSettings = ActionCodeSettings(
+        url:
+            'https://asistente-conversacional-bdebb.web.app/reset-password.html',
+        handleCodeInApp: false,
+      );
+
       await _auth
-          .sendPasswordResetEmail(email: emailNormalizado)
+          .sendPasswordResetEmail(
+            email: emailNormalizado,
+            actionCodeSettings: actionCodeSettings,
+          )
           .timeout(const Duration(seconds: 10));
 
       return {
