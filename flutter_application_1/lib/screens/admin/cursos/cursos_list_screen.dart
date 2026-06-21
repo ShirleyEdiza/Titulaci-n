@@ -232,59 +232,79 @@ class _CursoAdminCard extends StatelessWidget {
           )
         ],
       ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
-        leading: Container(
-          width: 45,
-          height: 45,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(Icons.class_, color: color),
-        ),
-        title: Text(
-          titulo,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-          ),
-        ),
-        subtitle: Text(
-          'Nivel: $nivel\nCódigo: $codigo',
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        trailing: PopupMenuButton<String>(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          onSelected: (value) {
-            if (value == 'editar') onEditar();
-            if (value == 'eliminar') onEliminar();
-          },
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: 'editar',
-              child: Row(
-                children: [
-                  Icon(Icons.edit, color: Color(0xFF1A237E), size: 18),
-                  SizedBox(width: 8),
-                  Text('Editar'),
-                ],
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 45,
+              height: 45,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
               ),
+              child: Icon(Icons.class_, color: color),
             ),
-            PopupMenuItem(
-              value: 'eliminar',
-              child: Row(
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.delete, color: Color(0xFFB71C1C), size: 18),
-                  SizedBox(width: 8),
                   Text(
-                    'Eliminar',
-                    style: TextStyle(color: Color(0xFFB71C1C)),
+                    titulo,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Nivel: $nivel',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  Text(
+                    'Código: $codigo',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
+            ),
+            PopupMenuButton<String>(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              onSelected: (value) {
+                if (value == 'editar') onEditar();
+                if (value == 'eliminar') onEliminar();
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'editar',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit, color: Color(0xFF1A237E), size: 18),
+                      SizedBox(width: 8),
+                      Text('Editar'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'eliminar',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, color: Color(0xFFB71C1C), size: 18),
+                      SizedBox(width: 8),
+                      Text(
+                        'Eliminar',
+                        style: TextStyle(color: Color(0xFFB71C1C)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),

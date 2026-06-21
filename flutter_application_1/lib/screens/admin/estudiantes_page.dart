@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_application_1/widgets/custom_snackbar.dart';
 
-class EstudiantesPage extends StatelessWidget {
+class EstudiantesPage extends StatefulWidget {
   const EstudiantesPage({super.key});
 
+  @override
+  State<EstudiantesPage> createState() => _EstudiantesPageState();
+}
+
+class _EstudiantesPageState extends State<EstudiantesPage> {
   final List<String> anios = const ['Primero', 'Segundo', 'Tercero'];
 
   Color _colorPorAnio(String anio) {
@@ -24,110 +29,231 @@ class EstudiantesPage extends StatelessWidget {
         .where('activo', isEqualTo: true)
         .get();
 
+    final matriculasActivas = await FirebaseFirestore.instance
+        .collection('matriculas')
+        .where('activo', isEqualTo: true)
+        .get();
+
+    final estudiantesYaAsignados = matriculasActivas.docs
+        .map((doc) => doc.data()['estudiante_uid'])
+        .toSet();
+    final estudiantesDisponibles = estudiantes.docs.where((doc) {
+      return !estudiantesYaAsignados.contains(doc.id);
+    }).toList();
+
+    estudiantesDisponibles.sort((a, b) {
+      final dataA = a.data();
+      final dataB = b.data();
+
+      final nombreA = (dataA['nombre'] ?? '').toString().toLowerCase();
+      final nombreB = (dataB['nombre'] ?? '').toString().toLowerCase();
+
+      return nombreA.compareTo(nombreB);
+    });
+
     if (!context.mounted) return;
 
-    if (estudiantes.docs.isEmpty) {
-      CustomSnackbar.warning(context, "No hay estudiantes registrados");
+    if (estudiantesDisponibles.isEmpty) {
+      CustomSnackbar.warning(
+        context,
+        "No hay estudiantes disponibles para agregar",
+      );
       return;
     }
 
+    String filtro = "";
     String? estudianteSeleccionado;
 
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          "Agregar estudiante a $nombreCurso",
-          style: const TextStyle(
-            color: Color(0xFF1A237E),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        content: StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return DropdownButtonFormField<String>(
-              value: estudianteSeleccionado,
-              isExpanded: true,
-              hint: const Text("Selecciona un estudiante"),
-              decoration: InputDecoration(
-                prefixIcon:
-                    const Icon(Icons.person_add, color: Color(0xFFB71C1C)),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              items: estudiantes.docs.map((doc) {
-                final data = doc.data();
-                final nombre = data['nombre'] ?? 'Estudiante';
-                final email = data['email'] ?? '';
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          final estudiantesFiltrados = estudiantesDisponibles.where((doc) {
+            final data = doc.data();
+            final nombre = (data['nombre'] ?? '').toString().toLowerCase();
+            final email = (data['email'] ?? '').toString().toLowerCase();
+            final busqueda = filtro.toLowerCase().trim();
 
-                return DropdownMenuItem(
-                  value: doc.id,
-                  child: Text(
-                    "$nombre - $email",
+            return nombre.contains(busqueda) || email.contains(busqueda);
+          }).toList();
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              "Agregar estudiante",
+              style: const TextStyle(
+                color: Color(0xFF1A237E),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    nombreCurso,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 12,
+                    ),
                   ),
-                );
-              }).toList(),
-              onChanged: (v) {
-                setStateDialog(() => estudianteSeleccionado = v);
-              },
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancelar"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFB71C1C),
-              foregroundColor: Colors.white,
+                  const SizedBox(height: 12),
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: "Buscar por nombre o correo",
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        color: Color(0xFFB71C1C),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      isDense: true,
+                    ),
+                    onChanged: (value) {
+                      setStateDialog(() {
+                        filtro = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    constraints: const BoxConstraints(
+                      maxHeight: 320,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: Colors.grey.withOpacity(0.25),
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: estudiantesFiltrados.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(20),
+                            child: Text(
+                              "No se encontraron estudiantes",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: estudiantesFiltrados.length,
+                            separatorBuilder: (_, __) => Divider(
+                              height: 1,
+                              color: Colors.grey.withOpacity(0.2),
+                            ),
+                            itemBuilder: (context, index) {
+                              final doc = estudiantesFiltrados[index];
+                              final data = doc.data();
+
+                              final nombre = data['nombre'] ?? 'Estudiante';
+                              final email = data['email'] ?? '';
+                              final seleccionado =
+                                  estudianteSeleccionado == doc.id;
+
+                              return ListTile(
+                                dense: true,
+                                leading: CircleAvatar(
+                                  backgroundColor: seleccionado
+                                      ? const Color(0xFFB71C1C)
+                                      : const Color(0xFFB71C1C)
+                                          .withOpacity(0.12),
+                                  child: Text(
+                                    nombre.toString().isNotEmpty
+                                        ? nombre.toString()[0].toUpperCase()
+                                        : "E",
+                                    style: TextStyle(
+                                      color: seleccionado
+                                          ? Colors.white
+                                          : const Color(0xFFB71C1C),
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                title: Text(
+                                  nombre.toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1A237E),
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  email.toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                trailing: seleccionado
+                                    ? const Icon(
+                                        Icons.check_circle,
+                                        color: Colors.green,
+                                      )
+                                    : null,
+                                onTap: () {
+                                  setStateDialog(() {
+                                    estudianteSeleccionado = doc.id;
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
-            onPressed: () async {
-              if (estudianteSeleccionado == null) {
-                CustomSnackbar.warning(context, "Selecciona un estudiante");
-                return;
-              }
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("Cancelar"),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFB71C1C),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  if (estudianteSeleccionado == null) {
+                    CustomSnackbar.warning(
+                      context,
+                      "Selecciona un estudiante",
+                    );
+                    return;
+                  }
 
-              final existe = await FirebaseFirestore.instance
-                  .collection('matriculas')
-                  .where('estudiante_uid', isEqualTo: estudianteSeleccionado)
-                  .where('curso_id', isEqualTo: cursoId)
-                  .where('activo', isEqualTo: true)
-                  .get();
+                  await FirebaseFirestore.instance
+                      .collection('matriculas')
+                      .add({
+                    'estudiante_uid': estudianteSeleccionado,
+                    'curso_id': cursoId,
+                    'activo': true,
+                    'fecha_ingreso': FieldValue.serverTimestamp(),
+                  });
 
-              if (existe.docs.isNotEmpty) {
-                if (context.mounted) {
-                  CustomSnackbar.warning(
-                    context,
-                    "El estudiante ya está en este curso",
-                  );
-                }
-                return;
-              }
-
-              await FirebaseFirestore.instance.collection('matriculas').add({
-                'estudiante_uid': estudianteSeleccionado,
-                'curso_id': cursoId,
-                'activo': true,
-                'fecha_ingreso': FieldValue.serverTimestamp(),
-              });
-
-              if (context.mounted) {
-                Navigator.pop(ctx);
-                CustomSnackbar.success(
-                  context,
-                  "Estudiante agregado correctamente",
-                );
-              }
-            },
-            child: const Text("Agregar"),
-          ),
-        ],
+                  if (context.mounted) {
+                    Navigator.pop(ctx);
+                    CustomSnackbar.success(
+                      context,
+                      "Estudiante agregado correctamente",
+                    );
+                  }
+                },
+                icon: const Icon(Icons.person_add),
+                label: const Text("Agregar"),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -146,15 +272,7 @@ class EstudiantesPage extends StatelessWidget {
     if (!context.mounted) return;
 
     final cursosDisponibles = cursos.docs.where((doc) {
-      final data = doc.data();
-
-      final tieneAnio =
-          data['anio'] != null && data['anio'].toString().trim().isNotEmpty;
-
-      final tieneParalelo = data['paralelo'] != null &&
-          data['paralelo'].toString().trim().isNotEmpty;
-
-      return doc.id != cursoActualId && tieneAnio && tieneParalelo;
+      return doc.id != cursoActualId;
     }).toList();
 
     if (cursosDisponibles.isEmpty) {
@@ -164,7 +282,7 @@ class EstudiantesPage extends StatelessWidget {
 
     String? cursoDestino;
 
-    await showDialog(
+    final movido = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -189,10 +307,16 @@ class EstudiantesPage extends StatelessWidget {
                 ),
               ),
               items: cursosDisponibles.map((doc) {
-                final data = doc.data();
+                final data = doc.data() as Map<String, dynamic>;
+
+                final nombreCurso = (data['tipo'] ??
+                        data['paralelo'] ??
+                        data['nombre'] ??
+                        'Curso')
+                    .toString();
 
                 final textoCurso =
-                    "${data['anio'] ?? ''} - ${data['paralelo'] ?? data['nombre'] ?? ''}";
+                    "${data['anio'] ?? ''} - $nombreCurso - Nivel ${data['nivel'] ?? ''}";
 
                 return DropdownMenuItem(
                   value: doc.id,
@@ -211,7 +335,7 @@ class EstudiantesPage extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text("Cancelar"),
           ),
           ElevatedButton(
@@ -254,12 +378,8 @@ class EstudiantesPage extends StatelessWidget {
                 'fecha_ingreso': FieldValue.serverTimestamp(),
               });
 
-              if (context.mounted) {
-                Navigator.pop(ctx);
-                CustomSnackbar.success(
-                  context,
-                  "Estudiante movido correctamente",
-                );
+              if (ctx.mounted) {
+                Navigator.pop(ctx, true);
               }
             },
             child: const Text("Mover"),
@@ -267,6 +387,13 @@ class EstudiantesPage extends StatelessWidget {
         ],
       ),
     );
+
+    if (movido == true && context.mounted) {
+      CustomSnackbar.success(
+        context,
+        "Estudiante movido correctamente",
+      );
+    }
   }
 
   Future<void> _eliminarDelCurso(
@@ -340,9 +467,9 @@ class EstudiantesPage extends StatelessWidget {
           );
         }
 
-        final cursos = snapshot.data?.docs ?? [];
+        final cursosFiltrados = snapshot.data?.docs ?? [];
 
-        if (cursos.isEmpty) {
+        if (cursosFiltrados.isEmpty) {
           return const Center(
             child: Text(
               "Primero crea cursos para gestionar estudiantes",
@@ -351,27 +478,35 @@ class EstudiantesPage extends StatelessWidget {
           );
         }
 
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-          children: anios.map((anio) {
-            final cursosDelAnio = cursos.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              return data['anio'] == anio;
-            }).toList();
+        return Column(
+          children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+                children: anios.map((anio) {
+                  final cursosDelAnio = cursosFiltrados.where((doc) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    return data['anio'] == anio;
+                  }).toList();
 
-            return _SeccionAnioEstudiantes(
-              titulo: anio == 'Primero'
-                  ? '1ro Bachillerato'
-                  : anio == 'Segundo'
-                      ? '2do Bachillerato'
-                      : '3ro Bachillerato',
-              color: _colorPorAnio(anio),
-              cursos: cursosDelAnio,
-              onAgregar: _agregarEstudiante,
-              onMover: _moverEstudiante,
-              onEliminar: _eliminarDelCurso,
-            );
-          }).toList(),
+                  return _SeccionAnioEstudiantes(
+                    titulo: anio == 'Primero'
+                        ? '1ro Bachillerato'
+                        : anio == 'Segundo'
+                            ? '2do Bachillerato'
+                            : '3ro Bachillerato',
+                    color: _colorPorAnio(anio),
+                    cursos: cursosDelAnio,
+                    onAgregar: _agregarEstudiante,
+                    onMover: (_, matriculaId, estudianteUid, cursoId) =>
+                        _moverEstudiante(
+                            context, matriculaId, estudianteUid, cursoId),
+                    onEliminar: _eliminarDelCurso,
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -431,8 +566,12 @@ class _SeccionAnioEstudiantes extends StatelessWidget {
 
               return _CursoEstudiantesCard(
                 cursoId: doc.id,
-                nombreCurso: data['paralelo'] ?? data['nombre'] ?? '',
-                nivel: data['nivel'] ?? '',
+                nombreCurso: (data['tipo'] ??
+                        data['paralelo'] ??
+                        data['nombre'] ??
+                        'Curso')
+                    .toString(),
+                nivel: data['nivel'] ?? 'A1',
                 color: color,
                 onAgregar: onAgregar,
                 onMover: onMover,

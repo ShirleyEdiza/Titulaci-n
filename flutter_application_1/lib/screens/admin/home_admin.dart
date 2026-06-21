@@ -6,6 +6,7 @@ import 'estudiantes_page.dart';
 import 'cursos/cursos_list_screen.dart';
 import 'dashboard_admin.dart';
 import '../perfil/perfil_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HomeAdmin extends StatefulWidget {
   const HomeAdmin({super.key});
@@ -15,6 +16,31 @@ class HomeAdmin extends StatefulWidget {
 }
 
 class _HomeAdminState extends State<HomeAdmin> {
+  String nombreAdmin = "Administrador";
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarNombreAdmin();
+  }
+
+  Future<void> _cargarNombreAdmin() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final doc = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(user.uid)
+        .get();
+
+    if (!mounted) return;
+
+    setState(() {
+      nombreAdmin =
+          doc.data()?['nombre'] ?? user.displayName ?? "Administrador";
+    });
+  }
+
   int _selectedIndex = 0;
 
   final List<Widget> _pages = [
@@ -38,10 +64,10 @@ class _HomeAdminState extends State<HomeAdmin> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A237E),
         foregroundColor: Colors.white,
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("SpeakApp - Admin",
+            Text(nombreAdmin,
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -53,12 +79,16 @@ class _HomeAdminState extends State<HomeAdmin> {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'perfil') {
-                Navigator.push(
+                final actualizado = await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const PerfilScreen()),
                 );
+
+                if (actualizado == true) {
+                  await _cargarNombreAdmin();
+                }
               } else if (value == 'salir') {
                 _logout();
               }

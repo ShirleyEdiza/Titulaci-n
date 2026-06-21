@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_application_1/widgets/custom_snackbar.dart';
 import '../../services/admin_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class DocentesPage extends StatelessWidget {
   const DocentesPage({super.key});
@@ -12,6 +14,133 @@ class DocentesPage extends StatelessWidget {
     if (anio == 'Primero') return const Color(0xFF1A237E);
     if (anio == 'Segundo') return const Color(0xFFB71C1C);
     return const Color(0xFF4A148C);
+  }
+
+  Future<void> _crearDocente(BuildContext context) async {
+    final nombreCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final password = AdminService().generarPassword();
+
+    final formKey = GlobalKey<FormState>();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          "Registrar docente",
+          style: TextStyle(
+            color: Color(0xFF1A237E),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Nombre del docente",
+                  prefixIcon: Icon(Icons.person),
+                ),
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? "Campo requerido" : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: "Correo electrónico",
+                  prefixIcon: Icon(Icons.email),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return "Campo requerido";
+                  if (!v.contains("@")) return "Correo inválido";
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A237E).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  "Clave temporal: $password",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A237E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFB71C1C),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+
+              try {
+                final secondaryApp = await Firebase.initializeApp(
+                  name: 'SecondaryApp${DateTime.now().millisecondsSinceEpoch}',
+                  options: Firebase.app().options,
+                );
+
+                final secondaryAuth =
+                    FirebaseAuth.instanceFor(app: secondaryApp);
+
+                final cred = await secondaryAuth.createUserWithEmailAndPassword(
+                  email: emailCtrl.text.trim(),
+                  password: password,
+                );
+
+                await FirebaseFirestore.instance
+                    .collection('usuarios')
+                    .doc(cred.user!.uid)
+                    .set({
+                  'nombre': nombreCtrl.text.trim(),
+                  'email': emailCtrl.text.trim(),
+                  'rol': 'docente',
+                  'activo': true,
+                  'fecha_registro': FieldValue.serverTimestamp(),
+                  'debe_cambiar_password': true,
+                });
+
+                await secondaryAuth.signOut();
+                await secondaryApp.delete();
+
+                if (context.mounted) {
+                  Navigator.pop(ctx);
+                  CustomSnackbar.success(
+                    context,
+                    "Docente creado correctamente\nClave temporal: $password",
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  CustomSnackbar.error(context, "Error al crear docente");
+                }
+              }
+            },
+            child: const Text("Crear"),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _asignarDocente(
@@ -94,9 +223,6 @@ class DocentesPage extends StatelessWidget {
                 return;
               }
 
-              final adminService = AdminService();
-              final password = adminService.generarPassword();
-
               await FirebaseFirestore.instance
                   .collection('cursos')
                   .doc(cursoId)
@@ -104,18 +230,11 @@ class DocentesPage extends StatelessWidget {
                 'docente_uid': docenteSeleccionado,
               });
 
-              await FirebaseFirestore.instance
-                  .collection('usuarios')
-                  .doc(docenteSeleccionado)
-                  .update({
-                'temp_password': password,
-              });
-
               if (context.mounted) {
                 Navigator.pop(ctx);
                 CustomSnackbar.success(
                   context,
-                  "Docente asignado\nClave temporal: $password",
+                  "Docente asignado correctamente",
                 );
               }
             },
@@ -183,24 +302,43 @@ class DocentesPage extends StatelessWidget {
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-          children: anios.map((anio) {
-            final cursosDelAnio = cursos.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              return data['anio'] == anio;
-            }).toList();
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFB71C1C),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => _crearDocente(context),
+                icon: const Icon(Icons.person_add),
+                label: const Text("Registrar nuevo docente"),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...anios.map((anio) {
+              final cursosDelAnio = cursos.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return data['anio'] == anio;
+              }).toList();
 
-            return _SeccionAnioDocentes(
-              titulo: anio == 'Primero'
-                  ? '1ro Bachillerato'
-                  : anio == 'Segundo'
-                      ? '2do Bachillerato'
-                      : '3ro Bachillerato',
-              color: _colorPorAnio(anio),
-              cursos: cursosDelAnio,
-              onAsignar: _asignarDocente,
-              onQuitar: _quitarDocente,
-            );
-          }).toList(),
+              return _SeccionAnioDocentes(
+                titulo: anio == 'Primero'
+                    ? '1ro Bachillerato'
+                    : anio == 'Segundo'
+                        ? '2do Bachillerato'
+                        : '3ro Bachillerato',
+                color: _colorPorAnio(anio),
+                cursos: cursosDelAnio,
+                onAsignar: _asignarDocente,
+                onQuitar: _quitarDocente,
+              );
+            }).toList(),
+          ],
         );
       },
     );

@@ -13,11 +13,29 @@ class AdminService {
 
   // 🔹 Generar contraseña para docente
   String generarPassword() {
-    const chars = 'ABC123xyz@#';
+    const mayus = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const minus = 'abcdefghijklmnopqrstuvwxyz';
+    const nums = '123456789';
+    const especiales = '@#*';
+
     final rnd = Random();
 
-    return String.fromCharCodes(
-      Iterable.generate(8, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))),
-    );
+    final chars = [
+      mayus[rnd.nextInt(mayus.length)],
+      minus[rnd.nextInt(minus.length)],
+      nums[rnd.nextInt(nums.length)],
+      especiales[rnd.nextInt(especiales.length)],
+      ...List.generate(
+        6,
+        (_) {
+          const todos =
+              'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz123456789@#*';
+          return todos[rnd.nextInt(todos.length)];
+        },
+      ),
+    ];
+
+    chars.shuffle(rnd);
+    return chars.join();
   }
 }

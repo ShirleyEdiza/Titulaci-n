@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_application_1/widgets/custom_snackbar.dart';
 
 import '../../utils/password_validator.dart';
 import '../auth/login_screen.dart';
@@ -56,8 +57,19 @@ class _PerfilScreenState extends State<PerfilScreen> {
 
     final nombre = _nombreController.text.trim();
 
-    if (nombre.length < 3) {
-      _mensaje("Ingrese un nombre válido.");
+    final nombreRegex =
+        RegExp(r'^[A-Za-zÁÉÍÓÚáéíóúÑñ]+(?:\s[A-Za-zÁÉÍÓÚáéíóúÑñ]+)+$');
+
+    if (nombre.isEmpty) {
+      _mensaje("El nombre es obligatorio.", error: true);
+      return;
+    }
+
+    if (!nombreRegex.hasMatch(nombre)) {
+      _mensaje(
+        "Ingrese nombre y apellido válidos. Ejemplo: Ana Chela.",
+        error: true,
+      );
       return;
     }
 
@@ -73,8 +85,21 @@ class _PerfilScreenState extends State<PerfilScreen> {
       });
 
       await user.updateDisplayName(nombre);
+      await user.reload();
+
+      if (!mounted) return;
+
+      setState(() {
+        _nombreController.text = nombre;
+      });
 
       _mensaje("Nombre actualizado correctamente.");
+
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       _mensaje("No se pudo actualizar el nombre.");
     }
@@ -95,13 +120,21 @@ class _PerfilScreenState extends State<PerfilScreen> {
     final confirmar = _confirmarController.text.trim();
 
     if (actual.isEmpty) {
-      _mensaje("Ingrese su contraseña actual.");
+      _mensaje("Ingrese su contraseña actual.", error: true);
+      return;
+    }
+
+    if (actual == nueva) {
+      _mensaje(
+        "La nueva contraseña debe ser diferente a la contraseña actual.",
+        error: true,
+      );
       return;
     }
 
     final error = PasswordValidator.validarConfirmacion(nueva, confirmar);
     if (error != null) {
-      _mensaje(error);
+      _mensaje(error, error: true);
       return;
     }
 
@@ -113,6 +146,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
         password: actual,
       );
 
+      await user.reauthenticateWithCredential(credencial);
       await user.updatePassword(nueva);
 
       _actualController.clear();
@@ -137,14 +171,14 @@ class _PerfilScreenState extends State<PerfilScreen> {
       );
     } on FirebaseAuthException catch (e) {
       if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
-        _mensaje("La contraseña actual es incorrecta.");
+        _mensaje("La contraseña actual es incorrecta.", error: true);
       } else if (e.code == 'weak-password') {
-        _mensaje("La nueva contraseña es muy débil.");
+        _mensaje("La nueva contraseña es muy débil.", error: true);
       } else {
-        _mensaje("No se pudo cambiar la contraseña.");
+        _mensaje("No se pudo cambiar la contraseña.", error: true);
       }
     } catch (e) {
-      _mensaje("Ocurrió un error al cambiar la contraseña.");
+      _mensaje("Ocurrió un error al cambiar la contraseña.", error: true);
     }
 
     if (mounted) setState(() => cargando = false);
@@ -162,10 +196,12 @@ class _PerfilScreenState extends State<PerfilScreen> {
     );
   }
 
-  void _mensaje(String texto) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(texto)),
-    );
+  void _mensaje(String texto, {bool error = false}) {
+    if (error) {
+      CustomSnackbar.error(context, texto);
+    } else {
+      CustomSnackbar.success(context, texto);
+    }
   }
 
   @override
@@ -265,12 +301,15 @@ class _PerfilScreenState extends State<PerfilScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _nombreController,
+            onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
               labelText: "Nombre",
               prefixIcon: Icon(Icons.person),
               border: OutlineInputBorder(),
             ),
           ),
+          const SizedBox(height: 8),
+          _nombreRules(),
           const SizedBox(height: 12),
           ElevatedButton.icon(
             onPressed: _guardarNombre,
@@ -321,6 +360,8 @@ class _PerfilScreenState extends State<PerfilScreen> {
               setState(() => ocultarNueva = !ocultarNueva);
             },
           ),
+          const SizedBox(height: 8),
+          _passwordRules(),
           const SizedBox(height: 10),
           _passwordField(
             controller: _confirmarController,
@@ -329,11 +370,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
             onToggle: () {
               setState(() => ocultarConfirmar = !ocultarConfirmar);
             },
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            "Debe tener mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial.",
-            style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
           const SizedBox(height: 12),
           ElevatedButton.icon(
@@ -360,6 +396,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
     return TextField(
       controller: controller,
       obscureText: ocultar,
+      onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: const Icon(Icons.lock),
@@ -369,6 +406,70 @@ class _PerfilScreenState extends State<PerfilScreen> {
           onPressed: onToggle,
         ),
       ),
+    );
+  }
+
+  Widget _passwordRules() {
+    final password = _nuevaController.text;
+
+    Widget item(String texto, bool cumple) {
+      return Row(
+        children: [
+          Icon(
+            cumple ? Icons.check_circle : Icons.cancel,
+            size: 16,
+            color: cumple ? Colors.green : Colors.grey,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            texto,
+            style: TextStyle(
+              fontSize: 11,
+              color: cumple ? Colors.green : Colors.grey,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        item("Mínimo 8 caracteres", password.length >= 8),
+        item("Una letra mayúscula", RegExp(r'[A-Z]').hasMatch(password)),
+        item("Una letra minúscula", RegExp(r'[a-z]').hasMatch(password)),
+        item("Un número", RegExp(r'[0-9]').hasMatch(password)),
+        item("Un carácter especial",
+            RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(password)),
+      ],
+    );
+  }
+
+  Widget _nombreRules() {
+    final nombre = _nombreController.text.trim();
+    final nombreRegex =
+        RegExp(r'^[A-Za-zÁÉÍÓÚáéíóúÑñ]+(?:\s[A-Za-zÁÉÍÓÚáéíóúÑñ]+)+$');
+
+    final cumple = nombreRegex.hasMatch(nombre);
+
+    return Row(
+      children: [
+        Icon(
+          cumple ? Icons.check_circle : Icons.cancel,
+          size: 16,
+          color: cumple ? Colors.green : Colors.grey,
+        ),
+        const SizedBox(width: 6),
+        const Expanded(
+          child: Text(
+            "Ingrese nombre y apellido. Ejemplo: Ana Chela",
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
