@@ -366,11 +366,20 @@ class _EstudiantesPageState extends State<EstudiantesPage> {
                 return;
               }
 
-              await FirebaseFirestore.instance
+              final matriculasActivas = await FirebaseFirestore.instance
                   .collection('matriculas')
-                  .doc(matriculaId)
-                  .update({'activo': false});
+                  .where('estudiante_uid', isEqualTo: estudianteUid)
+                  .where('activo', isEqualTo: true)
+                  .get();
 
+              for (final doc in matriculasActivas.docs) {
+                await FirebaseFirestore.instance
+                    .collection('matriculas')
+                    .doc(doc.id)
+                    .update({
+                  'activo': false,
+                });
+              }
               await FirebaseFirestore.instance.collection('matriculas').add({
                 'estudiante_uid': estudianteUid,
                 'curso_id': cursoDestino,

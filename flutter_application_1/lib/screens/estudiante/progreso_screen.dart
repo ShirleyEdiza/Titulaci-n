@@ -1,20 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class ProgresoScreen extends StatelessWidget {
+class ProgresoScreen extends StatefulWidget {
   final String estudianteUid;
+  final String cursoId;
 
   const ProgresoScreen({
     super.key,
     required this.estudianteUid,
+    required this.cursoId,
   });
+
+  @override
+  State<ProgresoScreen> createState() => _ProgresoScreenState();
+}
+
+class _ProgresoScreenState extends State<ProgresoScreen> {
+  String filtroHistorial = "";
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('analisis')
-          .where('estudiante_uid', isEqualTo: estudianteUid)
+          .where('estudiante_uid', isEqualTo: widget.estudianteUid)
+          .where('curso_id', isEqualTo: widget.cursoId)
+          .orderBy('fecha_analisis', descending: true)
+          .limit(20)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -120,11 +132,6 @@ class ProgresoScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _diagnosticoProgreso(
-                    promedioGramatica: promedioGramatica,
-                    promedioPronunciacion: promedioPronunciacion,
-                  ),
-                  const SizedBox(height: 24),
                   const Text(
                     "Historial de interacciones",
                     style: TextStyle(
@@ -139,7 +146,32 @@ class ProgresoScreen extends StatelessWidget {
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 12),
-                  ...historial.map((item) => _historialResumenCard(item)),
+                  TextField(
+                    onChanged: (value) {
+                      setState(() {
+                        filtroHistorial = value;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      hintText: "Buscar por fecha o texto de la sesión",
+                      prefixIcon:
+                          const Icon(Icons.search, color: Color(0xFFB71C1C)),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ...historial.where((item) {
+                    final texto = item['texto'].toString().toLowerCase();
+                    final fecha = item['fecha_texto'].toString().toLowerCase();
+                    final filtro = filtroHistorial.toLowerCase().trim();
+
+                    return texto.contains(filtro) || fecha.contains(filtro);
+                  }).map((item) => _historialResumenCard(item)),
                 ],
               ),
             );
@@ -179,12 +211,9 @@ class ProgresoScreen extends StatelessWidget {
       }
 
       if (interaccionId.toString().isNotEmpty) {
-        final respuestasSnap = await FirebaseFirestore.instance
-            .collection('respuestas')
-            .where('interaccion_id', isEqualTo: interaccionId)
-            .get();
+        final totalResp = analisis['total_respuestas'] ?? 0;
 
-        respuestasSesion = respuestasSnap.docs.length;
+        respuestasSesion = totalResp;
         totalRespuestas += respuestasSesion;
 
         final pronunciacionSnap = await FirebaseFirestore.instance
@@ -211,6 +240,9 @@ class ProgresoScreen extends StatelessWidget {
         'respuestas': respuestasSesion,
         'gramatica': gramaticaSesion,
         'pronunciacion': pronunciacionSesion,
+        'fecha_texto': fecha is Timestamp
+            ? "${fecha.toDate().day}/${fecha.toDate().month}/${fecha.toDate().year}"
+            : "",
       });
     }
 
@@ -239,101 +271,6 @@ class ProgresoScreen extends StatelessWidget {
       'promedio_pronunciacion': promedioPronunciacion,
       'historial': historial,
     };
-  }
-
-  Widget _diagnosticoProgreso({
-    required int promedioGramatica,
-    required int promedioPronunciacion,
-  }) {
-    String fortaleza = "Sin datos suficientes";
-    String mejora = "Realizar más prácticas";
-
-    if (promedioGramatica > promedioPronunciacion) {
-      fortaleza = "Gramática";
-      mejora = "Pronunciación";
-    } else if (promedioPronunciacion > promedioGramatica) {
-      fortaleza = "Pronunciación";
-      mejora = "Gramática";
-    } else if (promedioGramatica > 0 && promedioPronunciacion > 0) {
-      fortaleza = "Desempeño equilibrado";
-      mejora = "Mantener práctica constante";
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: _cardDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Diagnóstico del progreso",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1A237E),
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 14),
-          _diagnosticoItem(
-            Icons.emoji_events,
-            "Fortaleza principal",
-            fortaleza,
-            const Color(0xFFF9A825),
-          ),
-          const SizedBox(height: 12),
-          _diagnosticoItem(
-            Icons.trending_up,
-            "Área a mejorar",
-            mejora,
-            const Color(0xFFB71C1C),
-          ),
-          const SizedBox(height: 12),
-          _diagnosticoItem(
-            Icons.school,
-            "Estado",
-            "En progreso",
-            const Color(0xFF1A237E),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _diagnosticoItem(
-    IconData icono,
-    String titulo,
-    String valor,
-    Color color,
-  ) {
-    return Row(
-      children: [
-        CircleAvatar(
-          radius: 18,
-          backgroundColor: color.withOpacity(0.12),
-          child: Icon(icono, color: color, size: 18),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                titulo,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              Text(
-                valor,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A237E),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _resumenHabilidades({

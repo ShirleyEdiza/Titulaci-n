@@ -26,6 +26,8 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
   late TabController _tabController;
   List<Map<String, dynamic>> estudiantesResumen = [];
   bool cargando = true;
+  String filtroEstudiante = "";
+  String filtroReporte = "";
 
   @override
   void initState() {
@@ -52,24 +54,27 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
 
     List<Map<String, dynamic>> datos = [];
 
-    for (final mat in matriculasSnap.docs) {
-      final estudianteUid = mat.data()['estudiante_uid'] ?? '';
+    datos = await Future.wait(
+      matriculasSnap.docs.map((mat) async {
+        final estudianteUid = mat.data()['estudiante_uid'] ?? '';
 
-      final usuarioDoc = await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(estudianteUid)
-          .get();
+        final usuarioDoc = await FirebaseFirestore.instance
+            .collection('usuarios')
+            .doc(estudianteUid)
+            .get();
 
-      final usuario = usuarioDoc.data() ?? {};
-      final resumen = await _obtenerResumenEstudiante(estudianteUid);
+        final usuario = usuarioDoc.data() ?? {};
 
-      datos.add({
-        'uid': estudianteUid,
-        'nombre': usuario['nombre'] ?? 'Estudiante',
-        'email': usuario['email'] ?? '',
-        ...resumen,
-      });
-    }
+        final resumen = await _obtenerResumenEstudiante(estudianteUid);
+
+        return {
+          'uid': estudianteUid,
+          'nombre': usuario['nombre'] ?? 'Estudiante',
+          'email': usuario['email'] ?? '',
+          ...resumen,
+        };
+      }).toList(),
+    );
 
     if (!mounted) return;
 
@@ -93,30 +98,32 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
         .collection('interacciones')
         .where('estudiante_uid', isEqualTo: estudianteUid)
         .where('curso_id', isEqualTo: widget.cursoId)
-        .limit(10)
+        .where('estado', isEqualTo: 'finalizada')
         .get();
 
     sesiones = interaccionesSnap.docs.length;
+    final interaccionIds = interaccionesSnap.docs.map((e) => e.id).toSet();
 
     for (final interaccion in interaccionesSnap.docs) {
-      final respuestasSnap = await FirebaseFirestore.instance
-          .collection('respuestas')
-          .where('interaccion_id', isEqualTo: interaccion.id)
-          .limit(10)
-          .get();
-
-      respuestas += respuestasSnap.docs.length;
+      final data = interaccion.data();
+      respuestas +=
+          ((data['total_respuestas'] ?? data['total_resp'] ?? 0) as num)
+              .toInt();
     }
 
     final analisisSnap = await FirebaseFirestore.instance
         .collection('analisis')
         .where('estudiante_uid', isEqualTo: estudianteUid)
         .where('curso_id', isEqualTo: widget.cursoId)
-        .limit(10)
         .get();
 
     for (final doc in analisisSnap.docs) {
       final data = doc.data();
+      final interaccionId = data['interaccion_id']?.toString();
+
+      if (interaccionId == null || !interaccionIds.contains(interaccionId)) {
+        continue;
+      }
       final p = data['puntuacion_gramatica'];
 
       if (p is num) {
@@ -133,11 +140,17 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
         .collection('pronunciacion')
         .where('estudiante_uid', isEqualTo: estudianteUid)
         .where('curso_id', isEqualTo: widget.cursoId)
-        .limit(10)
         .get();
 
     for (final doc in pronunciacionSnap.docs) {
-      final p = doc.data()['puntuacion_pronunciacion'];
+      final data = doc.data();
+      final interaccionId = data['interaccion_id']?.toString();
+
+      if (interaccionId == null || !interaccionIds.contains(interaccionId)) {
+        continue;
+      }
+
+      final p = data['puntuacion_pronunciacion'];
 
       if (p is num) {
         sumaPronunciacion += p.toInt();
@@ -297,80 +310,120 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
   }
 
   Widget _buildEstudiantesTab() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: estudiantesResumen.length,
-      itemBuilder: (context, index) {
-        final e = estudiantesResumen[index];
+    final estudiantesFiltrados = estudiantesResumen.where((e) {
+      final nombre = e['nombre'].toString().toLowerCase();
+      final email = e['email'].toString().toLowerCase();
+      final filtro = filtroEstudiante.toLowerCase().trim();
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          padding: const EdgeInsets.all(16),
-          decoration: _cardDecoration(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: const Color(0xFF1A237E).withOpacity(0.1),
-                    child: Text(
-                      e['nombre'].toString().isNotEmpty
-                          ? e['nombre'].toString()[0].toUpperCase()
-                          : 'E',
-                      style: const TextStyle(
-                        color: Color(0xFF1A237E),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      e['nombre'].toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1A237E),
-                      ),
-                    ),
-                  ),
-                  _nivelChip(e['nivel'].toString()),
-                ],
+      return nombre.contains(filtro) || email.contains(filtro);
+    }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: TextField(
+            onChanged: (value) {
+              setState(() {
+                filtroEstudiante = value;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: "Buscar estudiante por nombre o correo",
+              prefixIcon: const Icon(Icons.search, color: Color(0xFFB71C1C)),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
               ),
-              const SizedBox(height: 6),
-              Text(
-                e['email'].toString(),
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "${e['sesiones']} sesiones · ${e['respuestas']} respuestas",
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 12),
-              _barra("Gramática", e['gramatica'], const Color(0xFF1A237E)),
-              const SizedBox(height: 10),
-              _barra(
-                "Pronunciación",
-                e['pronunciacion'],
-                const Color(0xFFB71C1C),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                "Recomendación: ${_recomendacion(e)}",
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
-              ),
-            ],
+            ),
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: estudiantesFiltrados.isEmpty
+              ? const Center(
+                  child: Text(
+                    "No se encontraron estudiantes",
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  itemCount: estudiantesFiltrados.length,
+                  itemBuilder: (context, index) {
+                    final e = estudiantesFiltrados[index];
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      padding: const EdgeInsets.all(16),
+                      decoration: _cardDecoration(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor:
+                                    const Color(0xFF1A237E).withOpacity(0.1),
+                                child: Text(
+                                  e['nombre'].toString().isNotEmpty
+                                      ? e['nombre'].toString()[0].toUpperCase()
+                                      : 'E',
+                                  style: const TextStyle(
+                                    color: Color(0xFF1A237E),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  e['nombre'].toString(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1A237E),
+                                  ),
+                                ),
+                              ),
+                              _nivelChip(e['nivel'].toString()),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            e['email'].toString(),
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            "${e['sesiones']} sesiones · ${e['respuestas']} respuestas",
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 12),
+                          _barra("Gramática", e['gramatica'],
+                              const Color(0xFF1A237E)),
+                          const SizedBox(height: 10),
+                          _barra("Pronunciación", e['pronunciacion'],
+                              const Color(0xFFB71C1C)),
+                          const SizedBox(height: 12),
+                          Text(
+                            "Recomendación: ${_recomendacion(e)}",
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.black87),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
   Widget _buildReporteTab() {
-    final promedioGramatica = _promedio('gramatica');
-    final promedioPronunciacion = _promedio('pronunciacion');
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -403,18 +456,6 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
             icon: const Icon(Icons.picture_as_pdf),
             label: const Text("Generar PDF general del curso"),
           ),
-          const SizedBox(height: 16),
-          _barra(
-            "Promedio general gramática",
-            promedioGramatica,
-            const Color(0xFF1A237E),
-          ),
-          const SizedBox(height: 12),
-          _barra(
-            "Promedio general pronunciación",
-            promedioPronunciacion,
-            const Color(0xFFB71C1C),
-          ),
           const SizedBox(height: 20),
           const Text(
             "Reporte por estudiante",
@@ -425,14 +466,40 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
             ),
           ),
           const SizedBox(height: 12),
-          ...estudiantesResumen.map((e) {
+          TextField(
+            onChanged: (value) {
+              setState(() {
+                filtroReporte = value;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: "Buscar estudiante para reporte",
+              prefixIcon: const Icon(Icons.search, color: Color(0xFFB71C1C)),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...estudiantesResumen.where((e) {
+            final nombre = e['nombre'].toString().toLowerCase();
+            final email = e['email'].toString().toLowerCase();
+            final filtro = filtroReporte.toLowerCase().trim();
+            return nombre.contains(filtro) || email.contains(filtro);
+          }).map((e) {
             return Container(
               margin: const EdgeInsets.only(bottom: 10),
               decoration: _cardDecoration(),
               child: ListTile(
-                title: Text(e['nombre'].toString()),
-                subtitle: Text(
-                  "Gramática: ${e['gramatica'] ?? 'Pendiente'}% · Pronunciación: ${e['pronunciacion'] ?? 'Pendiente'}%",
+                title: Text(
+                  e['nombre'].toString(),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A237E),
+                  ),
                 ),
                 trailing: const Icon(
                   Icons.picture_as_pdf,

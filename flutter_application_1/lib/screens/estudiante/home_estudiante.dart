@@ -30,6 +30,21 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
     _cargarNombre();
   }
 
+  Future<String?> _obtenerCursoActualId() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('matriculas')
+        .where('estudiante_uid', isEqualTo: uid)
+        .where('activo', isEqualTo: true)
+        .orderBy('fecha_ingreso', descending: true)
+        .limit(1)
+        .get();
+
+    if (snap.docs.isEmpty) return null;
+
+    final data = snap.docs.first.data();
+    return data['curso_id'];
+  }
+
   Future<void> _cargarNombre() async {
     try {
       DocumentSnapshot doc = await FirebaseFirestore.instance
@@ -132,24 +147,35 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
       body: _selectedIndex == 0
           ? _buildCursosTab()
           : _selectedIndex == 1
-              ? ProgresoScreen(estudianteUid: uid)
+              ? FutureBuilder<String?>(
+                  future: _obtenerCursoActualId(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFFB71C1C),
+                        ),
+                      );
+                    }
+
+                    final cursoActualId = snapshot.data;
+
+                    if (cursoActualId == null) {
+                      return _buildEmptyState(
+                        icon: Icons.bar_chart,
+                        titulo: "Sin curso activo",
+                        subtitulo:
+                            "Debes estar inscrito en un curso para ver tu progreso.",
+                      );
+                    }
+
+                    return ProgresoScreen(
+                      estudianteUid: uid,
+                      cursoId: cursoActualId,
+                    );
+                  },
+                )
               : _buildRetroalimentacionTab(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
-        selectedItemColor: const Color(0xFFB71C1C),
-        unselectedItemColor: Colors.grey,
-        selectedLabelStyle:
-            const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-        items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.class_), label: "Mis Cursos"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.bar_chart), label: "Progreso"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.feedback), label: "Retroalimentación"),
-        ],
-      ),
     );
   }
 
@@ -233,6 +259,8 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
                 .collection('matriculas')
                 .where('estudiante_uid', isEqualTo: uid)
                 .where('activo', isEqualTo: true)
+                .orderBy('fecha_ingreso', descending: true)
+                .limit(1)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -351,6 +379,8 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
           .collection('matriculas')
           .where('estudiante_uid', isEqualTo: uid)
           .where('activo', isEqualTo: true)
+          .orderBy('fecha_ingreso', descending: true)
+          .limit(1)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -823,6 +853,7 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
                   .collection('matriculas')
                   .where('estudiante_uid', isEqualTo: uid)
                   .where('activo', isEqualTo: true)
+                  .orderBy('fecha_ingreso', descending: true)
                   .limit(1)
                   .snapshots(),
               builder: (context, snapshot) {
@@ -907,6 +938,7 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
                   .collection('matriculas')
                   .where('estudiante_uid', isEqualTo: uid)
                   .where('activo', isEqualTo: true)
+                  .orderBy('fecha_ingreso', descending: true)
                   .limit(1)
                   .snapshots(),
               builder: (context, snapshot) {
@@ -1006,8 +1038,10 @@ class _CursoInscritoCard extends StatelessWidget {
         if (!snapshot.data!.exists) return const SizedBox();
 
         var data = snapshot.data!.data() as Map<String, dynamic>;
-        String nombre = data['nombre'] ?? '';
-        String paralelo = data['paralelo'] ?? '';
+        String nombre =
+            data['tipo'] ?? data['paralelo'] ?? data['nombre'] ?? 'Curso';
+        String paralelo =
+            data['tipo'] ?? data['paralelo'] ?? data['nombre'] ?? 'Curso';
         String nivel = data['nivel'] ?? 'A1';
         String anio = data['anio'] ?? '';
 
@@ -1060,15 +1094,17 @@ class _CursoInscritoCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        paralelo.isNotEmpty ? paralelo : nombre,
+                        nombre,
                         style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: color),
                       ),
-                      Text(nombre,
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.grey)),
+                      Text(
+                        "$anio Bachillerato",
+                        style:
+                            const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
                       Container(
                         margin: const EdgeInsets.only(top: 4),
                         padding: const EdgeInsets.symmetric(
