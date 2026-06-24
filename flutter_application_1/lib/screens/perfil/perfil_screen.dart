@@ -51,25 +51,53 @@ class _PerfilScreenState extends State<PerfilScreen> {
     });
   }
 
+  String? _validarNombreCompleto(String valor) {
+    final nombre = valor.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+    if (nombre.isEmpty) {
+      return "El nombre es obligatorio.";
+    }
+
+    if (nombre.length < 7) {
+      return "Ingrese un nombre y apellido válidos. Ejemplo: Ana Chela.";
+    }
+
+    if (RegExp(r'[0-9]').hasMatch(nombre)) {
+      return "El nombre no debe contener números.";
+    }
+
+    if (RegExp(r'[^A-Za-zÁÉÍÓÚáéíóúÑñ\s]').hasMatch(nombre)) {
+      return "El nombre no debe contener símbolos ni caracteres especiales.";
+    }
+
+    final partes = nombre.split(' ');
+
+    if (partes.length < 2) {
+      return "Ingrese nombre y apellido. Ejemplo: Ana Chela.";
+    }
+
+    if (partes.any((p) => p.length < 3)) {
+      return "El nombre y apellido deben tener al menos 3 letras.";
+    }
+
+    if (partes
+        .any((p) => RegExp(r'^(.)\1+$', caseSensitive: false).hasMatch(p))) {
+      return "Ingrese un nombre real, no letras repetidas.";
+    }
+
+    return null;
+  }
+
   Future<void> _guardarNombre() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final nombre = _nombreController.text.trim();
+    final nombre =
+        _nombreController.text.trim().replaceAll(RegExp(r'\s+'), ' ');
 
-    final nombreRegex =
-        RegExp(r'^[A-Za-zÁÉÍÓÚáéíóúÑñ]+(?:\s[A-Za-zÁÉÍÓÚáéíóúÑñ]+)+$');
-
-    if (nombre.isEmpty) {
-      _mensaje("El nombre es obligatorio.", error: true);
-      return;
-    }
-
-    if (!nombreRegex.hasMatch(nombre)) {
-      _mensaje(
-        "Ingrese nombre y apellido válidos. Ejemplo: Ana Chela.",
-        error: true,
-      );
+    final errorNombre = _validarNombreCompleto(nombre);
+    if (errorNombre != null) {
+      _mensaje(errorNombre, error: true);
       return;
     }
 
@@ -446,11 +474,9 @@ class _PerfilScreenState extends State<PerfilScreen> {
   }
 
   Widget _nombreRules() {
-    final nombre = _nombreController.text.trim();
-    final nombreRegex =
-        RegExp(r'^[A-Za-zÁÉÍÓÚáéíóúÑñ]+(?:\s[A-Za-zÁÉÍÓÚáéíóúÑñ]+)+$');
-
-    final cumple = nombreRegex.hasMatch(nombre);
+    final nombre =
+        _nombreController.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final cumple = _validarNombreCompleto(nombre) == null;
 
     return Row(
       children: [

@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/login_screen.dart';
-import 'ingreso_codigo_screen.dart';
 import 'participantes_screen.dart';
 import 'asistente_virtual_screen.dart';
 import 'retroalimentacion_screen.dart';
 import 'retroalimentacion_oral_screen.dart';
 import 'progreso_screen.dart';
 import '../perfil/perfil_screen.dart';
+import 'package:flutter/services.dart';
 
 class HomeEstudiante extends StatefulWidget {
   const HomeEstudiante({super.key});
@@ -54,6 +54,15 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
         context, MaterialPageRoute(builder: (_) => const LoginScreen()));
   }
 
+  void _mostrarMensaje(String texto, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(texto),
+        backgroundColor: error ? const Color(0xFFB71C1C) : Colors.green,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -92,14 +101,18 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'perfil') {
-                Navigator.push(
+                final actualizado = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => const PerfilScreen(),
                   ),
                 );
+
+                if (actualizado == true) {
+                  await _cargarNombre();
+                }
               } else if (value == 'salir') {
                 _logout();
               }
@@ -272,76 +285,199 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
 
   void _mostrarDialogoUnirse(BuildContext context) {
     final codigoCtrl = TextEditingController();
+    bool cargando = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Incorporarse a una clase",
-            style: TextStyle(
-                color: Color(0xFF1A237E), fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              "Ingresa el código proporcionado por tu docente",
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: codigoCtrl,
-              textCapitalization: TextCapitalization.characters,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontSize: 22,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Text(
+                "Incorporarse a una clase",
+                style: TextStyle(
+                  color: Color(0xFF1A237E),
                   fontWeight: FontWeight.bold,
-                  letterSpacing: 4,
-                  color: Color(0xFF1A237E)),
-              decoration: InputDecoration(
-                hintText: "Ej: MSY-6RU",
-                hintStyle: const TextStyle(
-                    color: Colors.grey, fontSize: 18, letterSpacing: 3),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFB71C1C), width: 2),
                 ),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFB71C1C),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              if (codigoCtrl.text.isNotEmpty) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => IngresoCodigoScreen(
-                      codigoInicial: codigoCtrl.text.trim(),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "Ingresa el código proporcionado por tu docente.",
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: codigoCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    textAlign: TextAlign.center,
+                    maxLength: 7,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                          RegExp(r'[A-Za-z0-9-]')),
+                      TextInputFormatter.withFunction((oldValue, newValue) {
+                        String texto = newValue.text
+                            .toUpperCase()
+                            .replaceAll('-', '')
+                            .replaceAll(' ', '');
+
+                        if (texto.length > 6) {
+                          texto = texto.substring(0, 6);
+                        }
+
+                        if (texto.length > 3) {
+                          texto =
+                              '${texto.substring(0, 3)}-${texto.substring(3)}';
+                        }
+
+                        return TextEditingValue(
+                          text: texto,
+                          selection:
+                              TextSelection.collapsed(offset: texto.length),
+                        );
+                      }),
+                    ],
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 3,
+                      color: Color(0xFF1A237E),
+                    ),
+                    decoration: InputDecoration(
+                      counterText: "",
+                      hintText: "ASD-3AS",
+                      hintStyle: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 18,
+                        letterSpacing: 3,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Color(0xFFB71C1C),
+                          width: 2,
+                        ),
+                      ),
                     ),
                   ),
-                );
-              }
-            },
-            child: const Text("Unirse"),
-          ),
-        ],
-      ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: cargando ? null : () => Navigator.pop(ctx),
+                  child: const Text(
+                    "Cancelar",
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFB71C1C),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: cargando
+                      ? null
+                      : () async {
+                          final codigo = codigoCtrl.text.trim().toUpperCase();
+
+                          if (codigo.length != 7 || !codigo.contains('-')) {
+                            _mostrarMensaje(
+                              "Ingrese un código válido. Ejemplo: ASD-3AS.",
+                              error: true,
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => cargando = true);
+
+                          try {
+                            final cursoSnap = await FirebaseFirestore.instance
+                                .collection('cursos')
+                                .where('codigo_acceso', isEqualTo: codigo)
+                                .where('activo', isEqualTo: true)
+                                .limit(1)
+                                .get();
+
+                            if (cursoSnap.docs.isEmpty) {
+                              _mostrarMensaje(
+                                "Código incorrecto. Consulte el código correcto con su docente.",
+                                error: true,
+                              );
+                              setDialogState(() => cargando = false);
+                              return;
+                            }
+
+                            final cursoId = cursoSnap.docs.first.id;
+
+                            final existe = await FirebaseFirestore.instance
+                                .collection('matriculas')
+                                .where('curso_id', isEqualTo: cursoId)
+                                .where('estudiante_uid', isEqualTo: uid)
+                                .where('activo', isEqualTo: true)
+                                .limit(1)
+                                .get();
+
+                            if (existe.docs.isNotEmpty) {
+                              _mostrarMensaje(
+                                "Ya estás incorporado en esta clase.",
+                                error: true,
+                              );
+                              setDialogState(() => cargando = false);
+                              return;
+                            }
+
+                            await FirebaseFirestore.instance
+                                .collection('matriculas')
+                                .add({
+                              'curso_id': cursoId,
+                              'estudiante_uid': uid,
+                              'activo': true,
+                              'fecha_creacion': FieldValue.serverTimestamp(),
+                            });
+
+                            if (!mounted) return;
+
+                            Navigator.pop(ctx);
+
+                            _mostrarMensaje(
+                              "Te incorporaste correctamente a la clase.",
+                            );
+                          } catch (e) {
+                            _mostrarMensaje(
+                              "No se pudo incorporar a la clase.",
+                              error: true,
+                            );
+                            setDialogState(() => cargando = false);
+                          }
+                        },
+                  child: cargando
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text("Unirse"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

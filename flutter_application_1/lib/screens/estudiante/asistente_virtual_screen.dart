@@ -441,6 +441,18 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
           textoCompleto,
         );
 
+        final textoReferencia = resultado["texto_corregido"] ?? textoCompleto;
+
+        final resultadoPronunciacion =
+            await _pronunciacionService.analizarPronunciacion(
+          textoReconocido: textoCompleto,
+          textoReferencia: textoReferencia,
+        );
+
+        final puntuacionPronunciacion =
+            (resultadoPronunciacion['puntuacion_pronunciacion'] ?? 0)
+                .toDouble();
+
         await _analisisRepository.guardarAnalisis(
           respuestaId: respuestasIds.last,
           interaccionId: interaccionId!,
@@ -448,6 +460,8 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
           cursoId: widget.cursoId,
           textoOriginal: textoCompleto,
           resultado: resultado,
+          totalRespuestas: respuestasIds.length,
+          puntuacionPronunciacion: puntuacionPronunciacion,
         );
 
         await _analisisRepository.guardarFeedback(
@@ -457,13 +471,6 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
           comentario: resultado["comentario"] ?? "",
           sugerencias: resultado["sugerencias"] ?? [],
           puntosFuertes: resultado["puntos_fuertes"] ?? [],
-        );
-        final textoReferencia = resultado["texto_corregido"] ?? textoCompleto;
-
-        final resultadoPronunciacion =
-            await _pronunciacionService.analizarPronunciacion(
-          textoReconocido: textoCompleto,
-          textoReferencia: textoReferencia,
         );
 
         await _pronunciacionRepository.guardarPronunciacion(

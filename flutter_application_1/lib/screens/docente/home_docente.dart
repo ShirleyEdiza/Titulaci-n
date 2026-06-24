@@ -86,14 +86,18 @@ class _HomeDocenteState extends State<HomeDocente> {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'perfil') {
-                Navigator.push(
+                final actualizado = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => const PerfilScreen(),
                   ),
                 );
+
+                if (actualizado == true) {
+                  await _cargarNombre();
+                }
               } else if (value == 'salir') {
                 _logout();
               }

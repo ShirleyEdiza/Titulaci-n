@@ -10,6 +10,8 @@ class AnalisisRepository {
     required String cursoId,
     required String textoOriginal,
     required Map<String, dynamic> resultado,
+    int totalRespuestas = 0,
+    double puntuacionPronunciacion = 0,
   }) async {
     await _firestore.collection('analisis').add({
       'respuesta_id': respuestaId,
@@ -21,6 +23,9 @@ class AnalisisRepository {
       'errores_detectados': resultado['errores_detectados'] ?? [],
       'puntuacion_gramatica':
           (resultado['puntuacion_gramatica'] ?? 0).toDouble(),
+      'puntuacion_pronunciacion': puntuacionPronunciacion,
+      'total_respuestas': totalRespuestas,
+      'finalizado': true,
       'nivel_detectado': resultado['nivel_detectado'] ?? 'A1',
       'fecha_analisis': FieldValue.serverTimestamp(),
     });
