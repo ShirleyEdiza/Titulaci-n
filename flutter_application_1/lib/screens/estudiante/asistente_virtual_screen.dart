@@ -131,7 +131,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     await _tts.setLanguage("en-US");
     await _tts.setSpeechRate(0.45);
     await _tts.setPitch(1.0);
-    await _tts.awaitSpeakCompletion(true);
+    await _tts.awaitSpeakCompletion(false);
   }
 
   Future<void> iniciar() async {
@@ -162,11 +162,28 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> _iniciarEscuchaContinua() async {
-    if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
+  if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
 
-    final dir = await getTemporaryDirectory();
-    audioActualPath =
-        "${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a";
+  try {
+    await _speech.stop();
+
+    final disponible = await _speech.initialize(
+      onStatus: (status) {
+        debugPrint("STT STATUS: $status");
+      },
+      onError: (error) {
+        debugPrint("STT error: $error");
+      },
+    );
+
+    if (!disponible) {
+      if (!mounted) return;
+      setState(() {
+        escuchando = false;
+        estadoMicrofono = "No se pudo activar el micrófono";
+      });
+      return;
+    }
 
     if (!mounted) return;
 
@@ -175,29 +192,49 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
       estadoMicrofono = "Habla ahora...";
     });
 
-    if (await _recorder.hasPermission()) {
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
-        ),
-        path: audioActualPath!,
-      );
-    } else {
-      setState(() {
-        escuchando = false;
-        estadoMicrofono = "Permiso de micrófono denegado";
-      });
-      return;
-    }
+    String textoFinal = "";
 
-    await Future.delayed(const Duration(seconds: 7));
+    await _speech.listen(
+      localeId: "es_ES",
+      partialResults: true,
+      listenMode: stt.ListenMode.confirmation,
+      listenFor: const Duration(seconds: 4),
+      pauseFor: const Duration(seconds: 2),
+      onResult: (result) async {
+        final texto = result.recognizedWords.trim();
 
-    if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
+        debugPrint("TEXTO DETECTADO: $texto");
+        debugPrint("FINAL RESULT: ${result.finalResult}");
 
-    await _procesarAudioGrabadoConWhisper();
+        if (texto.isNotEmpty) {
+          textoFinal = texto;
+          if (mounted) {
+            setState(() {
+              textoUsuario = texto;
+            });
+          }
+        }
+
+        if (result.finalResult &&
+            textoFinal.isNotEmpty &&
+            iniciado &&
+            !guardando &&
+            !procesandoRespuesta) {
+          await _speech.stop();
+          await _procesarTextoFinal(textoFinal);
+        }
+      },
+    );
+  } catch (e) {
+    debugPrint("ERROR INICIANDO STT: $e");
+
+    if (!mounted) return;
+    setState(() {
+      escuchando = false;
+      estadoMicrofono = "Error al activar micrófono";
+    });
   }
+}
 
   Future<void> _procesarResultadoVoz(result) async {
     String textoDetectado = result.recognizedWords.trim();
@@ -334,7 +371,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> _procesarTextoFinal(String textoDetectado) async {
-    if (!mounted) return;
+    if (!mounted || procesandoRespuesta || guardando) return;
 
     setState(() {
       textoUsuario = textoDetectado;
@@ -345,11 +382,14 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
 
     await _speech.stop();
 
+    print("ENVIANDO A IA: $textoDetectado");
     final respuesta = await _iaService.enviarMensaje(
       textoDetectado,
       historialUsuario: historialUsuario,
       historialAsistente: historialAsistente,
     );
+
+    print("RESPUESTA IA: $respuesta");
 
     final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
 
@@ -404,15 +444,8 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
       procesandoRespuesta = false;
     });
 
-    if (iniciado && !guardando) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (!mounted) return;
-      setState(() {
-        escuchando = true;
-        estadoMicrofono = "Habla con el asistente";
-      });
-      await _iniciarEscuchaContinua();
-    }
+
+
   }
 
   Future<void> terminar() async {
@@ -713,7 +746,15 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
                       icon: Icons.mic,
                       label: "",
                       color: const Color(0xFF1A237E),
-                      onTap: iniciado || guardando ? null : iniciar,
+                      onTap: guardando || procesandoRespuesta
+    ? null
+    : () async {
+        if (!iniciado) {
+          await iniciar();
+        } else {
+          await _iniciarEscuchaContinua();
+        }
+      },
                     ),
                     _botonCircular(
                       icon: guardando ? Icons.hourglass_bottom : Icons.stop,
