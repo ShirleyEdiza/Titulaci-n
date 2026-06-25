@@ -904,169 +904,67 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
   }
 
   Widget _buildRetroEscrita() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A237E).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.edit_note,
-                  color: Color(0xFF1A237E),
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                "Retroalimentación escrita",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Color(0xFF1A237E),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            "Retroalimentación gramatical de tu interacción con el asistente virtual.",
-            style: TextStyle(fontSize: 13, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 500,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('matriculas')
-                  .where('estudiante_uid', isEqualTo: uid)
-                  .where('activo', isEqualTo: true)
-                  .limit(1)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return _buildEmptyState(
-                    icon: Icons.article_outlined,
-                    titulo: "Sin sesiones aún",
-                    subtitulo:
-                        "Completa una conversación con el asistente para ver tu retroalimentación.",
-                  );
-                }
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.68,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('matriculas')
+            .where('estudiante_uid', isEqualTo: uid)
+            .where('activo', isEqualTo: true)
+            .limit(1)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return _buildEmptyState(
+              icon: Icons.article_outlined,
+              titulo: "Sin sesiones",
+              subtitulo:
+                  "Completa una conversación para visualizar tu retroalimentación escrita.",
+            );
+          }
 
-                final matricula =
-                    snapshot.data!.docs.first.data() as Map<String, dynamic>;
+          final matricula =
+              snapshot.data!.docs.first.data() as Map<String, dynamic>;
 
-                final cursoId = matricula['curso_id'] ?? '';
+          final cursoId = matricula['curso_id'] ?? '';
 
-                return RetroalimentacionScreen(
-                  cursoId: cursoId,
-                );
-              },
-            ),
-          ),
-        ],
+          return RetroalimentacionScreen(
+            cursoId: cursoId,
+          );
+        },
       ),
     );
   }
 
   Widget _buildRetroOral() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFB71C1C).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.record_voice_over,
-                  color: Color(0xFFB71C1C),
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                "Retroalimentación oral",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Color(0xFFB71C1C),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            "Retroalimentación sobre pronunciación y palabras a practicar.",
-            style: TextStyle(fontSize: 13, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 500,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('matriculas')
-                  .where('estudiante_uid', isEqualTo: uid)
-                  .where('activo', isEqualTo: true)
-                  .limit(1)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return _buildEmptyState(
-                    icon: Icons.mic_none,
-                    titulo: "Sin sesiones aún",
-                    subtitulo:
-                        "Completa una conversación para ver tu retroalimentación oral.",
-                  );
-                }
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.68,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('matriculas')
+            .where('estudiante_uid', isEqualTo: uid)
+            .where('activo', isEqualTo: true)
+            .limit(1)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return _buildEmptyState(
+              icon: Icons.record_voice_over,
+              titulo: "Sin sesiones",
+              subtitulo:
+                  "Completa una conversación para visualizar tu retroalimentación oral.",
+            );
+          }
 
-                final matricula =
-                    snapshot.data!.docs.first.data() as Map<String, dynamic>;
+          final matricula =
+              snapshot.data!.docs.first.data() as Map<String, dynamic>;
 
-                final cursoId = matricula['curso_id'] ?? '';
+          final cursoId = matricula['curso_id'] ?? '';
 
-                return RetroalimentacionOralScreen(
-                  cursoId: cursoId,
-                );
-              },
-            ),
-          ),
-        ],
+          return RetroalimentacionOralScreen(
+            cursoId: cursoId,
+          );
+        },
       ),
     );
   }

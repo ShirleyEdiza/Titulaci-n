@@ -20,6 +20,9 @@ class _RetroalimentacionOralScreenState
     extends State<RetroalimentacionOralScreen> {
   final FlutterTts _tts = FlutterTts();
 
+  bool mostrarActual = true;
+  bool mostrarAnteriores = false;
+
   @override
   void initState() {
     super.initState();
@@ -101,45 +104,122 @@ class _RetroalimentacionOralScreenState
         final ultima = docs.first.data() as Map<String, dynamic>;
         final anteriores = docs.skip(1).toList();
 
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            const Text(
-              "Última retroalimentación oral",
-              style: TextStyle(
-                color: Color(0xFFB71C1C),
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _PronunciacionCard(
-              data: ultima,
-              destacada: true,
-              onPlay: _reproducir,
-            ),
-            const SizedBox(height: 14),
-            if (anteriores.isNotEmpty)
-              const Text(
-                "Historial anterior",
-                style: TextStyle(
-                  color: Color(0xFFB71C1C),
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                decoration: _cardDecoration(),
+                child: ExpansionTile(
+                  initiallyExpanded: mostrarActual,
+                  onExpansionChanged: (value) {
+                    setState(() {
+                      mostrarActual = value;
+                      if (value) mostrarAnteriores = false;
+                    });
+                  },
+                  iconColor: const Color(0xFFB71C1C),
+                  collapsedIconColor: const Color(0xFFB71C1C),
+                  title: const Text(
+                    "Retroalimentación actual",
+                    style: TextStyle(
+                      color: Color(0xFFB71C1C),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  subtitle:
+                      const Text("Análisis de pronunciación más reciente"),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: _PronunciacionCard(
+                        data: ultima,
+                        destacada: true,
+                        onPlay: _reproducir,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            const SizedBox(height: 8),
-            ...anteriores.map((doc) {
-              final data = doc.data() as Map<String, dynamic>;
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                decoration: _cardDecoration(),
+                child: anteriores.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(
+                          child: Text(
+                            "No hay retroalimentaciones anteriores.",
+                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      )
+                    : ExpansionTile(
+                        initiallyExpanded: mostrarAnteriores,
+                        onExpansionChanged: (value) {
+                          setState(() {
+                            mostrarAnteriores = value;
+                            if (value) mostrarActual = false;
+                          });
+                        },
+                        iconColor: const Color(0xFFB71C1C),
+                        collapsedIconColor: const Color(0xFFB71C1C),
+                        title: const Text(
+                          "Retroalimentaciones anteriores",
+                          style: TextStyle(
+                            color: Color(0xFFB71C1C),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        children: [
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.58,
+                            child: Scrollbar(
+                              thumbVisibility: true,
+                              radius: const Radius.circular(12),
+                              thickness: 5,
+                              child: ListView.builder(
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                                itemCount: anteriores.length,
+                                itemBuilder: (context, index) {
+                                  final data = anteriores[index].data()
+                                      as Map<String, dynamic>;
 
-              return _PronunciacionExpansionCard(
-                data: data,
-                onPlay: _reproducir,
-              );
-            }).toList(),
-          ],
+                                  return _PronunciacionExpansionCard(
+                                    data: data,
+                                    onPlay: _reproducir,
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ],
+          ),
         );
       },
+    );
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.06),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
     );
   }
 }
@@ -181,13 +261,10 @@ class _PronunciacionExpansionCard extends StatelessWidget {
         ),
         subtitle: Text("Puntuación ${puntuacion.toStringAsFixed(0)}"),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: _PronunciacionCard(
-              data: data,
-              destacada: false,
-              onPlay: onPlay,
-            ),
+          _PronunciacionCard(
+            data: data,
+            destacada: false,
+            onPlay: onPlay,
           ),
         ],
       ),
@@ -214,11 +291,11 @@ class _PronunciacionCard extends StatelessWidget {
     final palabras = List.from(data['palabras_observadas'] ?? []);
 
     return Container(
-      margin: EdgeInsets.only(bottom: destacada ? 18 : 0),
-      padding: const EdgeInsets.all(18),
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: destacada
               ? const Color(0xFFB71C1C).withOpacity(0.35)
@@ -239,16 +316,16 @@ class _PronunciacionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _header(puntuacion),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           _sectionTitle("Frase reconocida"),
           _box(textoReconocido),
-          const SizedBox(height: 12),
+          const SizedBox(height: 18),
           _sectionTitle("Frase de referencia"),
           _box(
             textoReferencia,
             color: const Color(0xFFFFEBEE),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           _sectionTitle("Palabras a practicar"),
           const SizedBox(height: 8),
           palabras.isEmpty
@@ -330,7 +407,7 @@ class _PronunciacionCard extends StatelessWidget {
     return Row(
       children: [
         CircleAvatar(
-          radius: 28,
+          radius: 24,
           backgroundColor: const Color(0xFFB71C1C),
           child: Text(
             valor.toStringAsFixed(0),
@@ -345,7 +422,7 @@ class _PronunciacionCard extends StatelessWidget {
           child: Text(
             "Análisis de pronunciación",
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 15,
               fontWeight: FontWeight.bold,
               color: Color(0xFFB71C1C),
             ),

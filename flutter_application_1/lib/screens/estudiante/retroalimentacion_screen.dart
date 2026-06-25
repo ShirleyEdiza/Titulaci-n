@@ -2,13 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-class RetroalimentacionScreen extends StatelessWidget {
+class RetroalimentacionScreen extends StatefulWidget {
   final String cursoId;
 
   const RetroalimentacionScreen({
     super.key,
     required this.cursoId,
   });
+
+  @override
+  State<RetroalimentacionScreen> createState() =>
+      _RetroalimentacionScreenState();
+}
+
+class _RetroalimentacionScreenState extends State<RetroalimentacionScreen> {
+  bool mostrarActual = true;
+  bool mostrarAnteriores = false;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +33,7 @@ class RetroalimentacionScreen extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('analisis')
             .where('estudiante_uid', isEqualTo: uid)
-            .where('curso_id', isEqualTo: cursoId)
+            .where('curso_id', isEqualTo: widget.cursoId)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -68,44 +77,120 @@ class RetroalimentacionScreen extends StatelessWidget {
           final ultima = docs.first.data() as Map<String, dynamic>;
           final anteriores = docs.skip(1).toList();
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const Text(
-                "Última retroalimentación",
-                style: TextStyle(
-                  color: Color(0xFF1A237E),
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _FeedbackCard(
-                analisis: ultima,
-                destacada: true,
-              ),
-              const SizedBox(height: 10),
-              if (anteriores.isNotEmpty)
-                const Text(
-                  "Historial anterior",
-                  style: TextStyle(
-                    color: Color(0xFF1A237E),
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  decoration: _cardDecoration(),
+                  child: ExpansionTile(
+                    key: ValueKey("actual_$mostrarActual"),
+                    initiallyExpanded: mostrarActual,
+                    onExpansionChanged: (value) {
+                      setState(() {
+                        mostrarActual = value;
+                        if (value) mostrarAnteriores = false;
+                      });
+                    },
+                    iconColor: const Color(0xFF1A237E),
+                    collapsedIconColor: const Color(0xFF1A237E),
+                    title: const Text(
+                      "Retroalimentación actual",
+                      style: TextStyle(
+                        color: Color(0xFF1A237E),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    subtitle: const Text("Análisis gramatical más reciente"),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        child: _FeedbackCard(
+                          analisis: ultima,
+                          destacada: true,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              const SizedBox(height: 8),
-              ...anteriores.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  decoration: _cardDecoration(),
+                  child: anteriores.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text(
+                            "No hay retroalimentaciones anteriores.",
+                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      : ExpansionTile(
+                          key: ValueKey("anteriores_$mostrarAnteriores"),
+                          initiallyExpanded: mostrarAnteriores,
+                          onExpansionChanged: (value) {
+                            setState(() {
+                              mostrarAnteriores = value;
+                              if (value) mostrarActual = false;
+                            });
+                          },
+                          iconColor: const Color(0xFF1A237E),
+                          collapsedIconColor: const Color(0xFF1A237E),
+                          title: const Text(
+                            "Retroalimentaciones anteriores",
+                            style: TextStyle(
+                              color: Color(0xFF1A237E),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          children: [
+                            SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.58,
+                              child: Scrollbar(
+                                thumbVisibility: true,
+                                radius: const Radius.circular(12),
+                                thickness: 5,
+                                child: ListView.builder(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                                  itemCount: anteriores.length,
+                                  itemBuilder: (context, index) {
+                                    final data = anteriores[index].data()
+                                        as Map<String, dynamic>;
 
-                return _FeedbackExpansionCard(
-                  analisis: data,
-                );
-              }).toList(),
-            ],
+                                    return _FeedbackExpansionCard(
+                                      analisis: data,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ],
+            ),
           );
         },
       ),
+    );
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.06),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
     );
   }
 }
@@ -147,12 +232,9 @@ class _FeedbackExpansionCard extends StatelessWidget {
         subtitle:
             Text("Nivel $nivel • Puntuación ${puntuacion.toStringAsFixed(0)}"),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: _FeedbackCard(
-              analisis: analisis,
-              destacada: false,
-            ),
+          _FeedbackCard(
+            analisis: analisis,
+            destacada: false,
           ),
         ],
       ),
@@ -178,11 +260,11 @@ class _FeedbackCard extends StatelessWidget {
     final errores = List.from(analisis['errores_detectados'] ?? []);
 
     return Container(
-      margin: EdgeInsets.only(bottom: destacada ? 18 : 0),
-      padding: const EdgeInsets.all(18),
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: destacada
               ? const Color(0xFFB71C1C).withOpacity(0.35)
@@ -241,7 +323,7 @@ class _FeedbackCard extends StatelessWidget {
     return Row(
       children: [
         CircleAvatar(
-          radius: 28,
+          radius: 24,
           backgroundColor: const Color(0xFF1A237E),
           child: Text(
             valor.toStringAsFixed(0),
@@ -259,7 +341,7 @@ class _FeedbackCard extends StatelessWidget {
               const Text(
                 "Análisis gramatical",
                 style: TextStyle(
-                  fontSize: 17,
+                  fontSize: 15,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF1A237E),
                 ),
