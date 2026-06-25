@@ -61,6 +61,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   String nombreIdioma = "English";
   String nombreUsuario = "estudiante";
   bool procesandoRespuesta = false;
+  bool reinicioAutomaticoMicrofono = false;
 
   List<String> historialUsuario = [];
   List<String> historialAsistente = [];
@@ -164,39 +165,79 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   Future<void> _iniciarEscuchaContinua() async {
     if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
 
-    final dir = await getTemporaryDirectory();
-    audioActualPath =
-        "${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a";
+    try {
+      if (_speech.isListening) {
+        await _speech.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
 
-    if (!mounted) return;
-
-    setState(() {
-      escuchando = true;
-      estadoMicrofono = "Habla ahora...";
-    });
-
-    if (await _recorder.hasPermission()) {
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
-        ),
-        path: audioActualPath!,
+      final disponible = await _speech.initialize(
+        onStatus: (status) {
+          debugPrint("STT STATUS: $status");
+        },
+        onError: (error) {
+          debugPrint("STT error: $error");
+        },
       );
-    } else {
+
+      if (!disponible) {
+        if (!mounted) return;
+        setState(() {
+          escuchando = false;
+          estadoMicrofono = "No se pudo activar el micrófono";
+        });
+        return;
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        escuchando = true;
+        estadoMicrofono = "Habla ahora...";
+      });
+
+      String textoFinal = "";
+
+      await _speech.listen(
+        localeId: "es_ES",
+        partialResults: true,
+        listenMode: stt.ListenMode.confirmation,
+        listenFor: const Duration(seconds: 4),
+        pauseFor: const Duration(seconds: 2),
+        onResult: (result) async {
+          final texto = result.recognizedWords.trim();
+
+          debugPrint("TEXTO DETECTADO: $texto");
+          debugPrint("FINAL RESULT: ${result.finalResult}");
+
+          if (texto.isNotEmpty) {
+            textoFinal = texto;
+            if (mounted) {
+              setState(() {
+                textoUsuario = texto;
+              });
+            }
+          }
+
+          if (result.finalResult &&
+              textoFinal.isNotEmpty &&
+              iniciado &&
+              !guardando &&
+              !procesandoRespuesta) {
+            await _speech.stop();
+            await _procesarTextoFinal(textoFinal);
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint("ERROR INICIANDO STT: $e");
+
+      if (!mounted) return;
       setState(() {
         escuchando = false;
-        estadoMicrofono = "Permiso de micrófono denegado";
+        estadoMicrofono = "Error al activar micrófono";
       });
-      return;
     }
-
-    await Future.delayed(const Duration(seconds: 7));
-
-    if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
-
-    await _procesarAudioGrabadoConWhisper();
   }
 
   Future<void> _procesarResultadoVoz(result) async {
@@ -257,6 +298,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> salirSinGuardar() async {
+    reinicioAutomaticoMicrofono = true;
     iniciado = false;
     guardando = true;
     escuchando = false;
@@ -334,7 +376,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> _procesarTextoFinal(String textoDetectado) async {
-    if (!mounted) return;
+    if (!mounted || procesandoRespuesta || guardando) return;
 
     setState(() {
       textoUsuario = textoDetectado;
@@ -345,11 +387,14 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
 
     await _speech.stop();
 
+    print("ENVIANDO A IA: $textoDetectado");
     final respuesta = await _iaService.enviarMensaje(
       textoDetectado,
       historialUsuario: historialUsuario,
       historialAsistente: historialAsistente,
     );
+
+    print("RESPUESTA IA: $respuesta");
 
     final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
 
@@ -400,23 +445,31 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     await _tts.speak(respuesta);
 
     if (!mounted) return;
+
     setState(() {
       procesandoRespuesta = false;
+      escuchando = false;
+      estadoMicrofono = "Habla con el asistente";
     });
 
     if (iniciado && !guardando) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (!mounted) return;
-      setState(() {
-        escuchando = true;
-        estadoMicrofono = "Habla con el asistente";
-      });
+      await Future.delayed(const Duration(milliseconds: 700));
+
+      if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
+
       await _iniciarEscuchaContinua();
     }
   }
 
   Future<void> terminar() async {
     if (!mounted) return;
+    reinicioAutomaticoMicrofono = true;
+
+    final interaccionIdFinal = interaccionId;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
+    final respuestaIdFinal = respuestasIds.isNotEmpty ? respuestasIds.last : "";
+    final totalRespuestas = respuestasIds.length;
+    final textoCompleto = historialUsuario.join(". ");
 
     setState(() {
       guardando = true;
@@ -432,53 +485,9 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
         await _recorder.stop();
       }
 
-      if (historialUsuario.isNotEmpty &&
-          respuestasIds.isNotEmpty &&
-          interaccionId != null) {
-        final textoCompleto = historialUsuario.join(". ");
-
-        final resultado = await _analisisService.analizarTexto(
-          textoCompleto,
-        );
-
-        await _analisisRepository.guardarAnalisis(
-          respuestaId: respuestasIds.last,
-          interaccionId: interaccionId!,
-          estudianteUid: FirebaseAuth.instance.currentUser?.uid ?? "sin_uid",
-          cursoId: widget.cursoId,
-          textoOriginal: textoCompleto,
-          resultado: resultado,
-        );
-
-        await _analisisRepository.guardarFeedback(
-          interaccionId: interaccionId!,
-          estudianteUid: FirebaseAuth.instance.currentUser?.uid ?? "sin_uid",
-          cursoId: widget.cursoId,
-          comentario: resultado["comentario"] ?? "",
-          sugerencias: resultado["sugerencias"] ?? [],
-          puntosFuertes: resultado["puntos_fuertes"] ?? [],
-        );
-        final textoReferencia = resultado["texto_corregido"] ?? textoCompleto;
-
-        final resultadoPronunciacion =
-            await _pronunciacionService.analizarPronunciacion(
-          textoReconocido: textoCompleto,
-          textoReferencia: textoReferencia,
-        );
-
-        await _pronunciacionRepository.guardarPronunciacion(
-          interaccionId: interaccionId!,
-          estudianteUid: FirebaseAuth.instance.currentUser?.uid ?? "sin_uid",
-          cursoId: widget.cursoId,
-          textoReconocido: textoCompleto,
-          textoReferencia: textoReferencia,
-          resultado: resultadoPronunciacion,
-        );
-      }
-
-      if (interaccionId != null) {
+      if (interaccionIdFinal != null) {
         await _audioRepository.finalizarInteraccion(
-          interaccionId: interaccionId!,
+          interaccionId: interaccionIdFinal,
         );
       }
 
@@ -493,77 +502,123 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
         respuestasIds.clear();
       });
 
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (dialogContext) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            title: const Text(
-              "Retroalimentación generada",
-              style: TextStyle(
-                color: Color(0xFF1A237E),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            content: const Text(
-              "Tu interacción fue guardada correctamente. Puedes revisar tu retroalimentación escrita u oral.",
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-
-                  Navigator.of(this.context).pop();
-                },
-                child: const Text("Cerrar"),
-              ),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A237E),
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-
-                  Navigator.of(this.context).pop(
-                    "ver_retro_escrita",
-                  );
-                },
-                icon: const Icon(Icons.edit_note),
-                label: const Text("Escrita"),
-              ),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFB71C1C),
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-
-                  Navigator.of(this.context).pop(
-                    "ver_retro_oral",
-                  );
-                },
-                icon: const Icon(Icons.record_voice_over),
-                label: const Text("Oral"),
-              ),
-            ],
-          ),
-        );
+      if (textoCompleto.trim().isNotEmpty &&
+          respuestaIdFinal.isNotEmpty &&
+          interaccionIdFinal != null) {
+        Future(() async {
+          await _generarRetroalimentacionEnSegundoPlano(
+            textoCompleto: textoCompleto,
+            interaccionIdFinal: interaccionIdFinal,
+            respuestaIdFinal: respuestaIdFinal,
+            uid: uid,
+            totalRespuestas: totalRespuestas,
+          );
+        });
       }
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Text(
+            "Sesión registrada",
+            style: TextStyle(
+              color: Color(0xFF1A237E),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: const Text(
+            "La sesión se registró correctamente.\nAccede al módulo de Retroalimentación.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                Navigator.of(this.context).pop();
+              },
+              child: const Text("Cerrar"),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1A237E),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                Navigator.of(this.context).pop("ver_retro_escrita");
+              },
+              icon: const Icon(Icons.rate_review),
+              label: const Text("Ir a Retroalimentación"),
+            ),
+          ],
+        ),
+      );
     } catch (e) {
       setState(() {
         guardando = false;
         estadoMicrofono = "Error al finalizar";
       });
 
-      _mostrarMensaje(
-        "Error al finalizar: $e",
-        Colors.red,
+      _mostrarMensaje("Error al finalizar: $e", Colors.red);
+    }
+  }
+
+  Future<void> _generarRetroalimentacionEnSegundoPlano({
+    required String textoCompleto,
+    required String interaccionIdFinal,
+    required String respuestaIdFinal,
+    required String uid,
+    required int totalRespuestas,
+  }) async {
+    try {
+      final resultado = await _analisisService.analizarTexto(textoCompleto);
+
+      final textoReferencia = resultado["texto_corregido"] ?? textoCompleto;
+
+      final resultadoPronunciacion =
+          await _pronunciacionService.analizarPronunciacion(
+        textoReconocido: textoCompleto,
+        textoReferencia: textoReferencia,
       );
+
+      final puntuacionPronunciacion =
+          (resultadoPronunciacion['puntuacion_pronunciacion'] ?? 0).toDouble();
+
+      await _analisisRepository.guardarAnalisis(
+        respuestaId: respuestaIdFinal,
+        interaccionId: interaccionIdFinal,
+        estudianteUid: uid,
+        cursoId: widget.cursoId,
+        textoOriginal: textoCompleto,
+        resultado: resultado,
+        totalRespuestas: totalRespuestas,
+        puntuacionPronunciacion: puntuacionPronunciacion,
+      );
+
+      await _analisisRepository.guardarFeedback(
+        interaccionId: interaccionIdFinal,
+        estudianteUid: uid,
+        cursoId: widget.cursoId,
+        comentario: resultado["comentario"] ?? "",
+        sugerencias: resultado["sugerencias"] ?? [],
+        puntosFuertes: resultado["puntos_fuertes"] ?? [],
+      );
+
+      await _pronunciacionRepository.guardarPronunciacion(
+        interaccionId: interaccionIdFinal,
+        estudianteUid: uid,
+        cursoId: widget.cursoId,
+        textoReconocido: textoCompleto,
+        textoReferencia: textoReferencia,
+        resultado: resultadoPronunciacion,
+      );
+    } catch (e) {
+      debugPrint("Error generando retroalimentación en segundo plano: $e");
     }
   }
 
@@ -706,7 +761,15 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
                       icon: Icons.mic,
                       label: "",
                       color: const Color(0xFF1A237E),
-                      onTap: iniciado || guardando ? null : iniciar,
+                      onTap: guardando || procesandoRespuesta
+                          ? null
+                          : () async {
+                              if (!iniciado) {
+                                await iniciar();
+                              } else {
+                                await _iniciarEscuchaContinua();
+                              }
+                            },
                     ),
                     _botonCircular(
                       icon: guardando ? Icons.hourglass_bottom : Icons.stop,

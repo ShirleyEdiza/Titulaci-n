@@ -86,14 +86,18 @@ class _HomeDocenteState extends State<HomeDocente> {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'perfil') {
-                Navigator.push(
+                final actualizado = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => const PerfilScreen(),
                   ),
                 );
+
+                if (actualizado == true) {
+                  await _cargarNombre();
+                }
               } else if (value == 'salir') {
                 _logout();
               }
@@ -166,58 +170,14 @@ class _HomeDocenteState extends State<HomeDocente> {
                       .where('activo', isEqualTo: true)
                       .snapshots(),
                   builder: (context, snap) {
-                    final cursos = snap.data?.docs ?? [];
-                    final totalCursos = cursos.length;
-                    final cursoIds = cursos.map((e) => e.id).toList();
-
-                    if (cursoIds.isEmpty) {
-                      return Row(
-                        children: [
-                          _buildStatBanner("0", "Cursos", Icons.class_),
-                          const SizedBox(width: 20),
-                          _buildStatBanner("0", "Estudiantes", Icons.people),
-                          const SizedBox(width: 20),
-                          _buildStatBanner("0", "Sesiones", Icons.mic),
-                        ],
-                      );
-                    }
-
-                    return FutureBuilder<QuerySnapshot>(
-                      future: FirebaseFirestore.instance
-                          .collection('matriculas')
-                          .where('activo', isEqualTo: true)
-                          .get(),
-                      builder: (context, matSnap) {
-                        final matriculas = matSnap.data?.docs ?? [];
-
-                        final matriculasDocente = matriculas.where((doc) {
-                          final data = doc.data() as Map<String, dynamic>;
-                          return cursoIds.contains(data['curso_id']);
-                        }).toList();
-
-                        final estudiantesUnicos = matriculasDocente
-                            .map((doc) => (doc.data()
-                                as Map<String, dynamic>)['estudiante_uid'])
-                            .where((uid) =>
-                                uid != null && uid.toString().isNotEmpty)
-                            .toSet();
-
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _buildStatBanner(
-                              "$totalCursos",
-                              "Cursos",
-                              Icons.class_,
-                            ),
-                            _buildStatBanner(
-                              "${estudiantesUnicos.length}",
-                              "Estudiantes",
-                              Icons.people,
-                            ),
-                          ],
-                        );
-                      },
+                    int totalCursos = snap.data?.docs.length ?? 0;
+                    return Row(
+                      children: [
+                        _buildStatBanner(
+                            "$totalCursos", "Cursos", Icons.class_),
+                        const SizedBox(width: 20),
+                        _EstudiantesTotalBanner(docenteUid: uid),
+                      ],
                     );
                   },
                 ),
@@ -256,22 +216,54 @@ class _HomeDocenteState extends State<HomeDocente> {
                 );
               }
 
+              final cursos = snapshot.data!.docs;
+
+              final anios = ['Primero', 'Segundo', 'Tercero'];
+
               return Column(
-                children: snapshot.data!.docs.map((doc) {
-                  var data = doc.data() as Map<String, dynamic>;
-                  return _CursoDocenteCard(
-                    cursoId: doc.id,
-                    nombre: data['tipo'] ??
-                        data['paralelo'] ??
-                        data['nombre'] ??
-                        'Curso',
-                    paralelo: data['tipo'] ??
-                        data['paralelo'] ??
-                        data['nombre'] ??
-                        'Curso',
-                    nivel: data['nivel'] ?? 'A1',
-                    anio: data['anio'] ?? '',
-                    codigo: data['codigo_acceso'] ?? '',
+                children: anios.map((anio) {
+                  final cursosDelAnio = cursos.where((doc) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    return data['anio'] == anio;
+                  }).toList();
+
+                  if (cursosDelAnio.isEmpty) return const SizedBox();
+
+                  final color = anio == 'Primero'
+                      ? const Color(0xFF1A237E)
+                      : anio == 'Segundo'
+                          ? const Color(0xFFB71C1C)
+                          : const Color(0xFF4A148C);
+
+                  final titulo = anio == 'Primero'
+                      ? '1ro Bachillerato'
+                      : anio == 'Segundo'
+                          ? '2do Bachillerato'
+                          : '3ro Bachillerato';
+
+                  return ExpansionTile(
+                    initiallyExpanded: true,
+                    tilePadding: EdgeInsets.zero,
+                    title: Text(
+                      titulo,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                    children: cursosDelAnio.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+
+                      return _CursoDocenteCard(
+                        cursoId: doc.id,
+                        nombre: data['nombre'] ?? '',
+                        tipo: data['tipo'] ?? '',
+                        nivel: data['nivel'] ?? 'A1',
+                        anio: data['anio'] ?? '',
+                        codigo: data['codigo_acceso'] ?? '',
+                      );
+                    }).toList(),
                   );
                 }).toList(),
               );
@@ -293,6 +285,123 @@ class _HomeDocenteState extends State<HomeDocente> {
         Text(label,
             style: const TextStyle(fontSize: 11, color: Colors.white70)),
       ],
+    );
+  }
+
+  Widget _EstudiantesTotalBanner({required String docenteUid}) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cursos')
+          .where('docente_uid', isEqualTo: docenteUid)
+          .where('activo', isEqualTo: true)
+          .snapshots(),
+      builder: (context, cursosSnap) {
+        if (!cursosSnap.hasData) {
+          return _buildStatBanner("0", "Estudiantes", Icons.people);
+        }
+
+        final cursosIds = cursosSnap.data!.docs.map((doc) => doc.id).toList();
+
+        if (cursosIds.isEmpty) {
+          return _buildStatBanner("0", "Estudiantes", Icons.people);
+        }
+
+        return FutureBuilder<int>(
+          future: _contarEstudiantesDocente(cursosIds),
+          builder: (context, snap) {
+            return _buildStatBanner(
+              "${snap.data ?? 0}",
+              "Estudiantes",
+              Icons.people,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<int> _contarEstudiantesDocente(List<String> cursosIds) async {
+    final Set<String> estudiantesUnicos = {};
+
+    for (final cursoId in cursosIds) {
+      final snap = await FirebaseFirestore.instance
+          .collection('matriculas')
+          .where('curso_id', isEqualTo: cursoId)
+          .where('activo', isEqualTo: true)
+          .get();
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final estudianteUid = data['estudiante_uid'] ?? '';
+        if (estudianteUid.toString().isNotEmpty) {
+          estudiantesUnicos.add(estudianteUid);
+        }
+      }
+    }
+
+    return estudiantesUnicos.length;
+  }
+
+  Widget _buildAccionCard(
+      String label, IconData icono, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          children: [
+            Icon(icono, color: Colors.white, size: 28),
+            const SizedBox(height: 6),
+            Text(label,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── TAB 2: ESTUDIANTES ─────────────────────────────────────
+  Widget _buildEstudiantesTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cursos')
+          .where('docente_uid', isEqualTo: uid)
+          .where('activo', isEqualTo: true)
+          .snapshots(),
+      builder: (context, cursosSnap) {
+        if (cursosSnap.connectionState == ConnectionState.waiting) {
+          return const Center(
+              child: CircularProgressIndicator(color: Color(0xFFB71C1C)));
+        }
+
+        if (!cursosSnap.hasData || cursosSnap.data!.docs.isEmpty) {
+          return _buildEmptyState(
+            icon: Icons.people_outline,
+            titulo: "Sin cursos asignados",
+            subtitulo:
+                "Cuando tengas cursos asignados verás tus estudiantes aquí",
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: cursosSnap.data!.docs.map((cursoDoc) {
+            var cursoData = cursoDoc.data() as Map<String, dynamic>;
+            return _EstudiantesPorCurso(
+              cursoId: cursoDoc.id,
+              nombreCurso: cursoData['nombre'] ?? '',
+              paralelo: cursoData['paralelo'] ?? '',
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
@@ -325,56 +434,230 @@ class _HomeDocenteState extends State<HomeDocente> {
 
 // ─── CARD CURSO DEL DOCENTE ───────────────────────────────────
 class _CursoDocenteCard extends StatelessWidget {
-  final String cursoId, nombre, paralelo, nivel, anio, codigo;
+  final String cursoId, nombre, tipo, nivel, anio, codigo;
 
   const _CursoDocenteCard({
     required this.cursoId,
     required this.nombre,
-    required this.paralelo,
+    required this.tipo,
     required this.nivel,
     required this.anio,
     required this.codigo,
   });
 
-  Color get _color => anio == 'Primero'
-      ? const Color(0xFF1A237E)
-      : anio == 'Segundo'
-          ? const Color(0xFFB71C1C)
-          : const Color(0xFF4A148C);
+  Color get _color {
+    if (anio == 'Primero') return const Color(0xFF1A237E);
+    if (anio == 'Segundo') return const Color(0xFFB71C1C);
+    return const Color(0xFF4A148C);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
+    final titulo = tipo.isNotEmpty ? tipo : nombre;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProgresoEstudiantesScreen(
+              cursoId: cursoId,
+              nombreCurso: nombre,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
               color: Colors.black.withOpacity(0.06),
               blurRadius: 10,
-              offset: const Offset(0, 4)),
-        ],
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 45,
+                height: 45,
+                decoration: BoxDecoration(
+                  color: _color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.bookmark, color: _color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      titulo,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Nivel: $nivel',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    Text(
+                      'Código: $codigo',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.more_vert,
+                color: Colors.black87,
+              ),
+            ],
+          ),
+        ),
       ),
-      child: Column(
-        children: [
-          Container(
+    );
+  }
+}
+
+// ─── ESTUDIANTES POR CURSO ────────────────────────────────────
+class _EstudiantesPorCurso extends StatelessWidget {
+  final String cursoId, nombreCurso, paralelo;
+
+  const _EstudiantesPorCurso({
+    required this.cursoId,
+    required this.nombreCurso,
+    required this.paralelo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Text(
+            paralelo.isNotEmpty ? paralelo : nombreCurso,
+            style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A237E)),
+          ),
+        ),
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('matriculas')
+              .where('curso_id', isEqualTo: cursoId)
+              .where('activo', isEqualTo: true)
+              .snapshots(),
+          builder: (context, snap) {
+            if (!snap.hasData || snap.data!.docs.isEmpty) {
+              return Container(
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text("Sin estudiantes inscritos",
+                    style: TextStyle(color: Colors.grey, fontSize: 13)),
+              );
+            }
+
+            return Column(
+              children: snap.data!.docs.map((doc) {
+                String estudianteUid =
+                    (doc.data() as Map<String, dynamic>)['estudiante_uid'] ??
+                        '';
+                return _EstudianteDocenteCard(
+                  estudianteUid: estudianteUid,
+                  cursoId: cursoId,
+                  nombreCurso: nombreCurso,
+                );
+              }).toList(),
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+}
+
+class _EstudianteDocenteCard extends StatelessWidget {
+  final String estudianteUid, cursoId, nombreCurso;
+
+  const _EstudianteDocenteCard({
+    required this.estudianteUid,
+    required this.cursoId,
+    required this.nombreCurso,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(estudianteUid)
+          .get(),
+      builder: (context, snap) {
+        if (!snap.hasData) return const SizedBox();
+        var data = snap.data!.data() as Map<String, dynamic>? ?? {};
+        String nombre = data['nombre'] ?? 'Estudiante';
+        String email = data['email'] ?? '';
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ProgresoEstudiantesScreen(
+                  cursoId: cursoId,
+                  nombreCurso: nombreCurso,
+                  estudianteUidFiltro: estudianteUid,
+                ),
+              ),
+            );
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: _color.withOpacity(0.07),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3)),
+              ],
             ),
             child: Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: _color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: const Color(0xFFB71C1C).withOpacity(0.1),
+                  child: Text(
+                    nombre.isNotEmpty ? nombre[0].toUpperCase() : 'E',
+                    style: const TextStyle(
+                        color: Color(0xFFB71C1C),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16),
                   ),
-                  child: Icon(Icons.class_, color: _color, size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -382,86 +665,36 @@ class _CursoDocenteCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(nombre,
-                          style: TextStyle(
-                              fontSize: 14,
+                          style: const TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: _color)),
-                      Text(
-                        "$anio Bachillerato",
-                        style:
-                            const TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
+                              fontSize: 14,
+                              color: Color(0xFF1A237E))),
+                      Text(email,
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.grey)),
                     ],
                   ),
                 ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text("Nivel $nivel",
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: _color,
-                          fontWeight: FontWeight.w600)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text("Gramática",
+                        style: TextStyle(fontSize: 10, color: Colors.grey)),
+                    const Text("--",
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A237E))),
+                  ],
                 ),
+                const SizedBox(width: 8),
+                const Icon(Icons.arrow_forward_ios,
+                    size: 14, color: Colors.grey),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Estudiantes inscritos
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('matriculas')
-                      .where('curso_id', isEqualTo: cursoId)
-                      .where('activo', isEqualTo: true)
-                      .snapshots(),
-                  builder: (context, snap) {
-                    int total = snap.data?.docs.length ?? 0;
-                    return Row(
-                      children: [
-                        Icon(Icons.people,
-                            size: 16, color: Colors.grey.shade500),
-                        const SizedBox(width: 4),
-                        Text("$total estudiantes",
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.grey)),
-                      ],
-                    );
-                  },
-                ),
-                // Ver progreso
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ProgresoEstudiantesScreen(
-                          cursoId: cursoId,
-                          nombreCurso: nombre,
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.bar_chart,
-                      size: 16, color: Color(0xFFB71C1C)),
-                  label: const Text("Ver progreso",
-                      style: TextStyle(
-                          color: Color(0xFFB71C1C),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

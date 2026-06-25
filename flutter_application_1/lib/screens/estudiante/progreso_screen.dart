@@ -1,38 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class ProgresoScreen extends StatefulWidget {
+class ProgresoScreen extends StatelessWidget {
   final String estudianteUid;
-  final String cursoId;
 
   const ProgresoScreen({
     super.key,
     required this.estudianteUid,
-    required this.cursoId,
   });
-
-  @override
-  State<ProgresoScreen> createState() => _ProgresoScreenState();
-}
-
-class _ProgresoScreenState extends State<ProgresoScreen> {
-  String filtroHistorial = "";
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('analisis')
-          .where('estudiante_uid', isEqualTo: widget.estudianteUid)
-          .where('curso_id', isEqualTo: widget.cursoId)
-          .orderBy('fecha_analisis', descending: true)
+          .where('estudiante_uid', isEqualTo: estudianteUid)
           .limit(20)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
             child: Text(
-              "Error al cargar progreso",
+              "Error al cargar progreso: ${snapshot.error}",
               style: const TextStyle(color: Colors.red),
             ),
           );
@@ -44,146 +33,142 @@ class _ProgresoScreenState extends State<ProgresoScreen> {
           );
         }
 
-        final analisisDocs = snapshot.data?.docs ?? [];
+        final analisisDocs = (snapshot.data?.docs ?? []).where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final gramatica = data['puntuacion_gramatica'];
+          final finalizado = data['finalizado'];
+
+          return finalizado == true || (gramatica is num && gramatica > 0);
+        }).toList();
 
         if (analisisDocs.isEmpty) {
           return _emptyState();
         }
 
-        return FutureBuilder<Map<String, dynamic>>(
-          future: _calcularResumen(analisisDocs),
-          builder: (context, resumenSnap) {
-            if (!resumenSnap.hasData) {
-              return const Center(
-                child: CircularProgressIndicator(color: Color(0xFFB71C1C)),
-              );
-            }
+        final resumen = _calcularResumen(analisisDocs);
+        final totalSesiones = resumen['total_sesiones'] ?? 0;
+        final totalRespuestas = resumen['total_respuestas'] ?? 0;
+        final promedioGramatica = resumen['promedio_gramatica'] ?? 0;
+        final promedioPronunciacion =
+            resumen['promedio_pronunciacion'] ?? 0;
+        final historial =
+            resumen['historial'] as List<Map<String, dynamic>>;
 
-            final resumen = resumenSnap.data!;
-
-            final totalSesiones = resumen['total_sesiones'] ?? 0;
-            final totalRespuestas = resumen['total_respuestas'] ?? 0;
-            final promedioGramatica = resumen['promedio_gramatica'] ?? 0;
-            final promedioPronunciacion =
-                resumen['promedio_pronunciacion'] ?? 0;
-            final historial =
-                resumen['historial'] as List<Map<String, dynamic>>;
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        return Padding(
+  padding: const EdgeInsets.all(16),
+  child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Mi Progreso",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A237E),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                "Resumen de tu desempeño en las prácticas de speaking.",
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 18),
+              Row(
                 children: [
-                  const Text(
-                    "Mi Progreso",
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E),
+                  Expanded(
+                    child: _statCard(
+                      totalSesiones.toString(),
+                      "Sesiones",
+                      Icons.mic,
+                      const Color(0xFF1A237E),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    "Resumen de tu desempeño en las prácticas de speaking.",
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _statCard(
-                          totalSesiones.toString(),
-                          "Sesiones",
-                          Icons.mic,
-                          const Color(0xFF1A237E),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _statCard(
-                          totalRespuestas.toString(),
-                          "Respuestas",
-                          Icons.chat_bubble_outline,
-                          const Color(0xFFB71C1C),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _statCard(
-                          "$promedioGramatica%",
-                          "Gramática",
-                          Icons.spellcheck,
-                          const Color(0xFFF9A825),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _statCard(
-                          "$promedioPronunciacion%",
-                          "Pronunciación",
-                          Icons.record_voice_over,
-                          const Color(0xFF4A148C),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    "Historial de interacciones",
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _statCard(
+                      totalRespuestas.toString(),
+                      "Respuestas",
+                      Icons.chat_bubble_outline,
+                      const Color(0xFFB71C1C),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    "Últimas sesiones registradas.",
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    onChanged: (value) {
-                      setState(() {
-                        filtroHistorial = value;
-                      });
-                    },
-                    decoration: InputDecoration(
-                      hintText: "Buscar por fecha o texto de la sesión",
-                      prefixIcon:
-                          const Icon(Icons.search, color: Color(0xFFB71C1C)),
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...historial.where((item) {
-                    final texto = item['texto'].toString().toLowerCase();
-                    final fecha = item['fecha_texto'].toString().toLowerCase();
-                    final filtro = filtroHistorial.toLowerCase().trim();
-
-                    return texto.contains(filtro) || fecha.contains(filtro);
-                  }).map((item) => _historialResumenCard(item)),
                 ],
               ),
-            );
-          },
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _statCard(
+                      "$promedioGramatica%",
+                      "Gramática",
+                      Icons.spellcheck,
+                      const Color(0xFFF9A825),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _statCard(
+                      "$promedioPronunciacion%",
+                      "Pronunciación",
+                      Icons.record_voice_over,
+                      const Color(0xFF4A148C),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                "Historial de interacciones",
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A237E),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                "Selecciona una fecha para ver las sesiones registradas.",
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+  child: Scrollbar(
+    thumbVisibility: true,
+    radius: const Radius.circular(12),
+    thickness: 5,
+    child: ListView(
+      children: _agruparHistorialPorFecha(historial).entries.map((entry) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10, right: 8),
+          decoration: _cardDecoration(),
+          child: ExpansionTile(
+            title: Text(
+              entry.key,
+              style: const TextStyle(
+                color: Color(0xFF1A237E),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            subtitle: Text("${entry.value.length} sesiones finalizadas"),
+            children: entry.value
+                .map((item) => _historialResumenCard(item))
+                .toList(),
+          ),
+        );
+      }).toList(),
+    ),
+  ),
+),
+            ],
+          ),
         );
       },
     );
   }
 
-  Future<Map<String, dynamic>> _calcularResumen(
+  Map<String, dynamic> _calcularResumen(
     List<QueryDocumentSnapshot> analisisDocs,
-  ) async {
+  ) {
     int totalRespuestas = 0;
     int sumaGramatica = 0;
     int cantidadGramatica = 0;
@@ -195,54 +180,32 @@ class _ProgresoScreenState extends State<ProgresoScreen> {
     for (final analisisDoc in analisisDocs) {
       final analisis = analisisDoc.data() as Map<String, dynamic>;
 
-      final interaccionId = analisis['interaccion_id'] ?? '';
       final fecha = analisis['fecha_analisis'];
-      final textoOriginal = analisis['texto_original'] ?? 'Sesión de práctica';
-
-      int? gramaticaSesion;
-      int? pronunciacionSesion;
-      int respuestasSesion = 0;
-
       final pGram = analisis['puntuacion_gramatica'];
-      if (pGram is num && pGram.toInt() > 0) {
-        gramaticaSesion = pGram.toInt();
+      final pPron = analisis['puntuacion_pronunciacion'];
+      final respuestas = analisis['total_respuestas'];
+
+      final gramaticaSesion = pGram is num ? pGram.toInt() : 0;
+      final pronunciacionSesion = pPron is num ? pPron.toInt() : 0;
+      final respuestasSesion = respuestas is num ? respuestas.toInt() : 0;
+
+      if (gramaticaSesion > 0) {
         sumaGramatica += gramaticaSesion;
         cantidadGramatica++;
       }
 
-      if (interaccionId.toString().isNotEmpty) {
-        final totalResp = analisis['total_respuestas'] ?? 0;
-
-        respuestasSesion = totalResp;
-        totalRespuestas += respuestasSesion;
-
-        final pronunciacionSnap = await FirebaseFirestore.instance
-            .collection('pronunciacion')
-            .where('interaccion_id', isEqualTo: interaccionId)
-            .limit(1)
-            .get();
-
-        if (pronunciacionSnap.docs.isNotEmpty) {
-          final pData = pronunciacionSnap.docs.first.data();
-          final pPron = pData['puntuacion_pronunciacion'];
-
-          if (pPron is num && pPron.toInt() > 0) {
-            pronunciacionSesion = pPron.toInt();
-            sumaPronunciacion += pronunciacionSesion;
-            cantidadPronunciacion++;
-          }
-        }
+      if (pronunciacionSesion > 0) {
+        sumaPronunciacion += pronunciacionSesion;
+        cantidadPronunciacion++;
       }
+
+      totalRespuestas += respuestasSesion;
 
       historial.add({
         'fecha_inicio': fecha,
-        'texto': textoOriginal,
         'respuestas': respuestasSesion,
         'gramatica': gramaticaSesion,
         'pronunciacion': pronunciacionSesion,
-        'fecha_texto': fecha is Timestamp
-            ? "${fecha.toDate().day}/${fecha.toDate().month}/${fecha.toDate().year}"
-            : "",
       });
     }
 
@@ -273,50 +236,34 @@ class _ProgresoScreenState extends State<ProgresoScreen> {
     };
   }
 
-  Widget _resumenHabilidades({
-    required int promedioGramatica,
-    required int promedioPronunciacion,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: _cardDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Resumen de habilidades",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1A237E),
-              fontSize: 15,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _habilidad(
-            "Gramática",
-            promedioGramatica / 100,
-            const Color(0xFF1A237E),
-          ),
-          const SizedBox(height: 14),
-          _habilidad(
-            "Pronunciación",
-            promedioPronunciacion / 100,
-            const Color(0xFFB71C1C),
-          ),
-        ],
-      ),
-    );
+  Map<String, List<Map<String, dynamic>>> _agruparHistorialPorFecha(
+    List<Map<String, dynamic>> historial,
+  ) {
+    final Map<String, List<Map<String, dynamic>>> grupos = {};
+
+    for (final item in historial) {
+      final fecha = item['fecha_inicio'];
+      String clave = "Sin fecha";
+
+      if (fecha is Timestamp) {
+        final f = fecha.toDate();
+        clave = "${f.day}/${f.month}/${f.year}";
+      }
+
+      grupos.putIfAbsent(clave, () => []);
+      grupos[clave]!.add(item);
+    }
+
+    return grupos;
   }
 
   Widget _historialResumenCard(Map<String, dynamic> item) {
     final fecha = item['fecha_inicio'];
-    String fechaTexto = "Sin fecha";
+    String fechaTexto = "Sin hora";
 
     if (fecha is Timestamp) {
       final f = fecha.toDate();
-      fechaTexto =
-          "${f.day}/${f.month}/${f.year} - ${f.hour}:${f.minute.toString().padLeft(2, '0')}";
+      fechaTexto = "${f.hour}:${f.minute.toString().padLeft(2, '0')}";
     }
 
     final gramatica = item['gramatica'];
@@ -324,9 +271,12 @@ class _ProgresoScreenState extends State<ProgresoScreen> {
     final respuestas = item['respuestas'] ?? 0;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: _cardDecoration(),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F9FC),
+        borderRadius: BorderRadius.circular(14),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -334,96 +284,39 @@ class _ProgresoScreenState extends State<ProgresoScreen> {
             children: [
               const CircleAvatar(
                 backgroundColor: Color(0xFF1A237E),
-                radius: 18,
-                child: Icon(Icons.history, color: Colors.white, size: 18),
+                radius: 16,
+                child: Icon(Icons.history, color: Colors.white, size: 16),
               ),
               const SizedBox(width: 10),
-              Expanded(
+              const Expanded(
                 child: Text(
-                  "Sesión de práctica",
-                  style: const TextStyle(
+                  "Sesión finalizada",
+                  style: TextStyle(
                     color: Color(0xFF1A237E),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
               Text(
-                "$respuestas resp.",
+                "$fechaTexto · $respuestas resp.",
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            fechaTexto,
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 14),
-          _miniBarraNullable("Gramática", gramatica, const Color(0xFF1A237E)),
+          const SizedBox(height: 12),
+          _miniPorcentaje("Gramática", gramatica, const Color(0xFF1A237E)),
           const SizedBox(height: 10),
-          _miniBarraNullable(
-              "Pronunciación", pronunciacion, const Color(0xFFB71C1C)),
+          _miniPorcentaje(
+            "Pronunciación",
+            pronunciacion,
+            const Color(0xFFB71C1C),
+          ),
         ],
       ),
     );
   }
 
-  Widget _miniBarra(String label, int valor, Color color) {
-    final v = (valor / 100).clamp(0.0, 1.0);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
-              ),
-            ),
-            Text(
-              "$valor%",
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 5),
-        LinearProgressIndicator(
-          value: v,
-          minHeight: 7,
-          backgroundColor: Colors.grey.shade200,
-          valueColor: AlwaysStoppedAnimation<Color>(color),
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ],
-    );
-  }
-
-  Widget _miniBarraNullable(String label, dynamic valor, Color color) {
-    if (valor == null) {
-      return Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
-            ),
-          ),
-          Text(
-            label == "Gramática"
-                ? "Sin evaluación escrita"
-                : "Sin evaluación oral",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-        ],
-      );
-    }
-
+  Widget _miniPorcentaje(String label, dynamic valor, Color color) {
     final numero = valor is num ? valor.toInt() : 0;
     final v = (numero / 100).clamp(0.0, 1.0);
 
@@ -432,19 +325,10 @@ class _ProgresoScreenState extends State<ProgresoScreen> {
       children: [
         Row(
           children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
-              ),
-            ),
+            Expanded(child: Text(label, style: const TextStyle(fontSize: 12))),
             Text(
               "$numero%",
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+              style: TextStyle(color: color, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -491,67 +375,32 @@ class _ProgresoScreenState extends State<ProgresoScreen> {
     );
   }
 
-  Widget _habilidad(String nombre, double valor, Color color) {
-    final valorSeguro = valor.clamp(0.0, 1.0);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              nombre,
-              style: const TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            Text(
-              "${(valorSeguro * 100).toInt()}%",
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        LinearProgressIndicator(
-          value: valorSeguro,
-          backgroundColor: Colors.grey.shade200,
-          valueColor: AlwaysStoppedAnimation<Color>(color),
-          minHeight: 8,
-          borderRadius: BorderRadius.circular(4),
-        ),
-      ],
-    );
-  }
-
-  Widget _emptyState() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
-        decoration: _cardDecoration(),
-        child: Column(
-          children: [
-            Icon(Icons.bar_chart, size: 54, color: Colors.grey.shade300),
-            const SizedBox(height: 12),
-            const Text(
-              "Sin progreso registrado",
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              "Completa una conversación con el asistente virtual para visualizar tu historial y resultados.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
+ Widget _emptyState() {
+  return Padding(
+    padding: const EdgeInsets.all(16),
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+      decoration: _cardDecoration(),
+      child: Column(
+        children: [
+          Icon(Icons.bar_chart, size: 54, color: Colors.grey.shade300),
+          const SizedBox(height: 12),
+          const Text(
+            "Sin progreso registrado",
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "Completa una conversación con el asistente virtual para visualizar tu historial y resultados.",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   BoxDecoration _cardDecoration() {
     return BoxDecoration(

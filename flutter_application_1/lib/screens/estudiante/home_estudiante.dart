@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/login_screen.dart';
-import 'ingreso_codigo_screen.dart';
 import 'participantes_screen.dart';
 import 'asistente_virtual_screen.dart';
 import 'retroalimentacion_screen.dart';
 import 'retroalimentacion_oral_screen.dart';
 import 'progreso_screen.dart';
 import '../perfil/perfil_screen.dart';
+import 'package:flutter/services.dart';
 
 class HomeEstudiante extends StatefulWidget {
   const HomeEstudiante({super.key});
@@ -28,21 +28,6 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
     super.initState();
     uid = FirebaseAuth.instance.currentUser!.uid;
     _cargarNombre();
-  }
-
-  Future<String?> _obtenerCursoActualId() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('matriculas')
-        .where('estudiante_uid', isEqualTo: uid)
-        .where('activo', isEqualTo: true)
-        .orderBy('fecha_ingreso', descending: true)
-        .limit(1)
-        .get();
-
-    if (snap.docs.isEmpty) return null;
-
-    final data = snap.docs.first.data();
-    return data['curso_id'];
   }
 
   Future<void> _cargarNombre() async {
@@ -67,6 +52,15 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
     if (!mounted) return;
     Navigator.pushReplacement(
         context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+  }
+
+  void _mostrarMensaje(String texto, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(texto),
+        backgroundColor: error ? const Color(0xFFB71C1C) : Colors.green,
+      ),
+    );
   }
 
   @override
@@ -107,14 +101,18 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'perfil') {
-                Navigator.push(
+                final actualizado = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => const PerfilScreen(),
                   ),
                 );
+
+                if (actualizado == true) {
+                  await _cargarNombre();
+                }
               } else if (value == 'salir') {
                 _logout();
               }
@@ -147,35 +145,24 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
       body: _selectedIndex == 0
           ? _buildCursosTab()
           : _selectedIndex == 1
-              ? FutureBuilder<String?>(
-                  future: _obtenerCursoActualId(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return const Center(
-                        child: CircularProgressIndicator(
-                          color: Color(0xFFB71C1C),
-                        ),
-                      );
-                    }
-
-                    final cursoActualId = snapshot.data;
-
-                    if (cursoActualId == null) {
-                      return _buildEmptyState(
-                        icon: Icons.bar_chart,
-                        titulo: "Sin curso activo",
-                        subtitulo:
-                            "Debes estar inscrito en un curso para ver tu progreso.",
-                      );
-                    }
-
-                    return ProgresoScreen(
-                      estudianteUid: uid,
-                      cursoId: cursoActualId,
-                    );
-                  },
-                )
+              ? ProgresoScreen(estudianteUid: uid)
               : _buildRetroalimentacionTab(),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (i) => setState(() => _selectedIndex = i),
+        selectedItemColor: const Color(0xFFB71C1C),
+        unselectedItemColor: Colors.grey,
+        selectedLabelStyle:
+            const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+        items: const [
+          BottomNavigationBarItem(
+              icon: Icon(Icons.class_), label: "Mis Cursos"),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.bar_chart), label: "Progreso"),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.feedback), label: "Retroalimentación"),
+        ],
+      ),
     );
   }
 
@@ -259,8 +246,6 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
                 .collection('matriculas')
                 .where('estudiante_uid', isEqualTo: uid)
                 .where('activo', isEqualTo: true)
-                .orderBy('fecha_ingreso', descending: true)
-                .limit(1)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -300,76 +285,199 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
 
   void _mostrarDialogoUnirse(BuildContext context) {
     final codigoCtrl = TextEditingController();
+    bool cargando = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("Incorporarse a una clase",
-            style: TextStyle(
-                color: Color(0xFF1A237E), fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              "Ingresa el código proporcionado por tu docente",
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: codigoCtrl,
-              textCapitalization: TextCapitalization.characters,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontSize: 22,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Text(
+                "Incorporarse a una clase",
+                style: TextStyle(
+                  color: Color(0xFF1A237E),
                   fontWeight: FontWeight.bold,
-                  letterSpacing: 4,
-                  color: Color(0xFF1A237E)),
-              decoration: InputDecoration(
-                hintText: "Ej: MSY-6RU",
-                hintStyle: const TextStyle(
-                    color: Colors.grey, fontSize: 18, letterSpacing: 3),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFFB71C1C), width: 2),
                 ),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFB71C1C),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              if (codigoCtrl.text.isNotEmpty) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => IngresoCodigoScreen(
-                      codigoInicial: codigoCtrl.text.trim(),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "Ingresa el código proporcionado por tu docente.",
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: codigoCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    textAlign: TextAlign.center,
+                    maxLength: 7,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                          RegExp(r'[A-Za-z0-9-]')),
+                      TextInputFormatter.withFunction((oldValue, newValue) {
+                        String texto = newValue.text
+                            .toUpperCase()
+                            .replaceAll('-', '')
+                            .replaceAll(' ', '');
+
+                        if (texto.length > 6) {
+                          texto = texto.substring(0, 6);
+                        }
+
+                        if (texto.length > 3) {
+                          texto =
+                              '${texto.substring(0, 3)}-${texto.substring(3)}';
+                        }
+
+                        return TextEditingValue(
+                          text: texto,
+                          selection:
+                              TextSelection.collapsed(offset: texto.length),
+                        );
+                      }),
+                    ],
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 3,
+                      color: Color(0xFF1A237E),
+                    ),
+                    decoration: InputDecoration(
+                      counterText: "",
+                      hintText: "ASD-3AS",
+                      hintStyle: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 18,
+                        letterSpacing: 3,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Color(0xFFB71C1C),
+                          width: 2,
+                        ),
+                      ),
                     ),
                   ),
-                );
-              }
-            },
-            child: const Text("Unirse"),
-          ),
-        ],
-      ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: cargando ? null : () => Navigator.pop(ctx),
+                  child: const Text(
+                    "Cancelar",
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFB71C1C),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: cargando
+                      ? null
+                      : () async {
+                          final codigo = codigoCtrl.text.trim().toUpperCase();
+
+                          if (codigo.length != 7 || !codigo.contains('-')) {
+                            _mostrarMensaje(
+                              "Ingrese un código válido. Ejemplo: ASD-3AS.",
+                              error: true,
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => cargando = true);
+
+                          try {
+                            final cursoSnap = await FirebaseFirestore.instance
+                                .collection('cursos')
+                                .where('codigo_acceso', isEqualTo: codigo)
+                                .where('activo', isEqualTo: true)
+                                .limit(1)
+                                .get();
+
+                            if (cursoSnap.docs.isEmpty) {
+                              _mostrarMensaje(
+                                "Código incorrecto. Consulte el código correcto con su docente.",
+                                error: true,
+                              );
+                              setDialogState(() => cargando = false);
+                              return;
+                            }
+
+                            final cursoId = cursoSnap.docs.first.id;
+
+                            final existe = await FirebaseFirestore.instance
+                                .collection('matriculas')
+                                .where('curso_id', isEqualTo: cursoId)
+                                .where('estudiante_uid', isEqualTo: uid)
+                                .where('activo', isEqualTo: true)
+                                .limit(1)
+                                .get();
+
+                            if (existe.docs.isNotEmpty) {
+                              _mostrarMensaje(
+                                "Ya estás incorporado en esta clase.",
+                                error: true,
+                              );
+                              setDialogState(() => cargando = false);
+                              return;
+                            }
+
+                            await FirebaseFirestore.instance
+                                .collection('matriculas')
+                                .add({
+                              'curso_id': cursoId,
+                              'estudiante_uid': uid,
+                              'activo': true,
+                              'fecha_creacion': FieldValue.serverTimestamp(),
+                            });
+
+                            if (!mounted) return;
+
+                            Navigator.pop(ctx);
+
+                            _mostrarMensaje(
+                              "Te incorporaste correctamente a la clase.",
+                            );
+                          } catch (e) {
+                            _mostrarMensaje(
+                              "No se pudo incorporar a la clase.",
+                              error: true,
+                            );
+                            setDialogState(() => cargando = false);
+                          }
+                        },
+                  child: cargando
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text("Unirse"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -379,8 +487,6 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
           .collection('matriculas')
           .where('estudiante_uid', isEqualTo: uid)
           .where('activo', isEqualTo: true)
-          .orderBy('fecha_ingreso', descending: true)
-          .limit(1)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -798,171 +904,67 @@ class _HomeEstudianteState extends State<HomeEstudiante> {
   }
 
   Widget _buildRetroEscrita() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A237E).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.edit_note,
-                  color: Color(0xFF1A237E),
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                "Retroalimentación escrita",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Color(0xFF1A237E),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            "Retroalimentación gramatical de tu interacción con el asistente virtual.",
-            style: TextStyle(fontSize: 13, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 500,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('matriculas')
-                  .where('estudiante_uid', isEqualTo: uid)
-                  .where('activo', isEqualTo: true)
-                  .orderBy('fecha_ingreso', descending: true)
-                  .limit(1)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return _buildEmptyState(
-                    icon: Icons.article_outlined,
-                    titulo: "Sin sesiones aún",
-                    subtitulo:
-                        "Completa una conversación con el asistente para ver tu retroalimentación.",
-                  );
-                }
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.68,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('matriculas')
+            .where('estudiante_uid', isEqualTo: uid)
+            .where('activo', isEqualTo: true)
+            .limit(1)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return _buildEmptyState(
+              icon: Icons.article_outlined,
+              titulo: "Sin sesiones",
+              subtitulo:
+                  "Completa una conversación para visualizar tu retroalimentación escrita.",
+            );
+          }
 
-                final matricula =
-                    snapshot.data!.docs.first.data() as Map<String, dynamic>;
+          final matricula =
+              snapshot.data!.docs.first.data() as Map<String, dynamic>;
 
-                final cursoId = matricula['curso_id'] ?? '';
+          final cursoId = matricula['curso_id'] ?? '';
 
-                return RetroalimentacionScreen(
-                  cursoId: cursoId,
-                );
-              },
-            ),
-          ),
-        ],
+          return RetroalimentacionScreen(
+            cursoId: cursoId,
+          );
+        },
       ),
     );
   }
 
   Widget _buildRetroOral() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFB71C1C).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.record_voice_over,
-                  color: Color(0xFFB71C1C),
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                "Retroalimentación oral",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Color(0xFFB71C1C),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            "Retroalimentación sobre pronunciación y palabras a practicar.",
-            style: TextStyle(fontSize: 13, color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 500,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('matriculas')
-                  .where('estudiante_uid', isEqualTo: uid)
-                  .where('activo', isEqualTo: true)
-                  .orderBy('fecha_ingreso', descending: true)
-                  .limit(1)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return _buildEmptyState(
-                    icon: Icons.mic_none,
-                    titulo: "Sin sesiones aún",
-                    subtitulo:
-                        "Completa una conversación para ver tu retroalimentación oral.",
-                  );
-                }
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.68,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('matriculas')
+            .where('estudiante_uid', isEqualTo: uid)
+            .where('activo', isEqualTo: true)
+            .limit(1)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return _buildEmptyState(
+              icon: Icons.record_voice_over,
+              titulo: "Sin sesiones",
+              subtitulo:
+                  "Completa una conversación para visualizar tu retroalimentación oral.",
+            );
+          }
 
-                final matricula =
-                    snapshot.data!.docs.first.data() as Map<String, dynamic>;
+          final matricula =
+              snapshot.data!.docs.first.data() as Map<String, dynamic>;
 
-                final cursoId = matricula['curso_id'] ?? '';
+          final cursoId = matricula['curso_id'] ?? '';
 
-                return RetroalimentacionOralScreen(
-                  cursoId: cursoId,
-                );
-              },
-            ),
-          ),
-        ],
+          return RetroalimentacionOralScreen(
+            cursoId: cursoId,
+          );
+        },
       ),
     );
   }
@@ -1025,8 +1027,16 @@ class _CursoInscritoCard extends StatelessWidget {
   final String cursoId;
   final String estudianteUid;
 
-  const _CursoInscritoCard(
-      {required this.cursoId, required this.estudianteUid});
+  const _CursoInscritoCard({
+    required this.cursoId,
+    required this.estudianteUid,
+  });
+
+  Color _colorPorAnio(String anio) {
+    if (anio == 'Primero') return const Color(0xFF1A237E);
+    if (anio == 'Segundo') return const Color(0xFFB71C1C);
+    return const Color(0xFF4A148C);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1037,19 +1047,16 @@ class _CursoInscritoCard extends StatelessWidget {
         if (!snapshot.hasData) return const SizedBox();
         if (!snapshot.data!.exists) return const SizedBox();
 
-        var data = snapshot.data!.data() as Map<String, dynamic>;
-        String nombre =
-            data['tipo'] ?? data['paralelo'] ?? data['nombre'] ?? 'Curso';
-        String paralelo =
-            data['tipo'] ?? data['paralelo'] ?? data['nombre'] ?? 'Curso';
-        String nivel = data['nivel'] ?? 'A1';
-        String anio = data['anio'] ?? '';
+        final data = snapshot.data!.data() as Map<String, dynamic>;
 
-        Color color = anio == 'Primero'
-            ? const Color(0xFF1A237E)
-            : anio == 'Segundo'
-                ? const Color(0xFFB71C1C)
-                : const Color(0xFF4A148C);
+        final nombre = data['nombre'] ?? '';
+        final tipo = data['tipo'] ?? '';
+        final codigo = data['codigo_acceso'] ?? '';
+        final nivel = data['nivel'] ?? '';
+        final anio = data['anio'] ?? '';
+
+        final color = _colorPorAnio(anio);
+        final titulo = tipo.toString().isNotEmpty ? tipo : nombre;
 
         return GestureDetector(
           onTap: () {
@@ -1065,84 +1072,94 @@ class _CursoInscritoCard extends StatelessWidget {
           },
           child: Container(
             margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: color.withOpacity(0.3), width: 1.5),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3)),
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
               ],
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 45,
+                    height: 45,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.class_, color: color),
                   ),
-                  child: Icon(Icons.class_, color: color, size: 24),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        nombre,
-                        style: TextStyle(
-                            fontSize: 14,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          titulo,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: color,
                             fontWeight: FontWeight.bold,
-                            color: color),
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Nivel: $nivel',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        Text(
+                          'Código: $codigo',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    children: [
+                      const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 14,
+                        color: Colors.grey,
                       ),
-                      Text(
-                        "$anio Bachillerato",
-                        style:
-                            const TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
+                      const SizedBox(height: 6),
                       Container(
-                        margin: const EdgeInsets.only(top: 4),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
+                          color: Colors.green.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: Text("Nivel $nivel",
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: color,
-                                fontWeight: FontWeight.w600)),
+                        child: const Text(
+                          "Inscrito",
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                Column(
-                  children: [
-                    const Icon(Icons.arrow_forward_ios,
-                        size: 14, color: Colors.grey),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text("Inscrito",
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 
 class ProgresoEstudiantesScreen extends StatefulWidget {
@@ -26,8 +27,7 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
   late TabController _tabController;
   List<Map<String, dynamic>> estudiantesResumen = [];
   bool cargando = true;
-  String filtroEstudiante = "";
-  String filtroReporte = "";
+  String filtroBusqueda = "";
 
   @override
   void initState() {
@@ -52,19 +52,19 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
             .where('activo', isEqualTo: true)
             .get();
 
-    List<Map<String, dynamic>> datos = [];
+    final estudiantesIds = matriculasSnap.docs
+        .map((d) => d.data()['estudiante_uid']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
 
-    datos = await Future.wait(
-      matriculasSnap.docs.map((mat) async {
-        final estudianteUid = mat.data()['estudiante_uid'] ?? '';
-
+    final resultados = await Future.wait(
+      estudiantesIds.map((estudianteUid) async {
         final usuarioDoc = await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(estudianteUid)
             .get();
 
         final usuario = usuarioDoc.data() ?? {};
-
         final resumen = await _obtenerResumenEstudiante(estudianteUid);
 
         return {
@@ -73,57 +73,58 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
           'email': usuario['email'] ?? '',
           ...resumen,
         };
-      }).toList(),
+      }),
     );
+
+    resultados.sort((a, b) => a['nombre']
+        .toString()
+        .toLowerCase()
+        .compareTo(b['nombre'].toString().toLowerCase()));
 
     if (!mounted) return;
 
     setState(() {
-      estudiantesResumen = datos;
+      estudiantesResumen = resultados;
       cargando = false;
     });
   }
 
   Future<Map<String, dynamic>> _obtenerResumenEstudiante(
       String estudianteUid) async {
-    int sesiones = 0;
-    int respuestas = 0;
     int sumaGramatica = 0;
     int cantidadGramatica = 0;
     int sumaPronunciacion = 0;
     int cantidadPronunciacion = 0;
     String nivel = "A1";
 
-    final interaccionesSnap = await FirebaseFirestore.instance
-        .collection('interacciones')
-        .where('estudiante_uid', isEqualTo: estudianteUid)
-        .where('curso_id', isEqualTo: widget.cursoId)
-        .where('estado', isEqualTo: 'finalizada')
-        .get();
+    final resultados = await Future.wait([
+      FirebaseFirestore.instance
+          .collection('analisis')
+          .where('estudiante_uid', isEqualTo: estudianteUid)
+          .where('curso_id', isEqualTo: widget.cursoId)
+          .limit(10)
+          .get(),
+      FirebaseFirestore.instance
+          .collection('pronunciacion')
+          .where('estudiante_uid', isEqualTo: estudianteUid)
+          .where('curso_id', isEqualTo: widget.cursoId)
+          .limit(10)
+          .get(),
+    ]);
 
-    sesiones = interaccionesSnap.docs.length;
-    final interaccionIds = interaccionesSnap.docs.map((e) => e.id).toSet();
+    final analisisSnap = resultados[0] as QuerySnapshot<Map<String, dynamic>>;
+    final pronunciacionSnap =
+        resultados[1] as QuerySnapshot<Map<String, dynamic>>;
 
-    for (final interaccion in interaccionesSnap.docs) {
-      final data = interaccion.data();
-      respuestas +=
-          ((data['total_respuestas'] ?? data['total_resp'] ?? 0) as num)
-              .toInt();
-    }
+    final sesiones = analisisSnap.docs.length;
 
-    final analisisSnap = await FirebaseFirestore.instance
-        .collection('analisis')
-        .where('estudiante_uid', isEqualTo: estudianteUid)
-        .where('curso_id', isEqualTo: widget.cursoId)
-        .get();
+    final respuestas = analisisSnap.docs.fold<int>(0, (sum, doc) {
+      final total = doc.data()['total_respuestas'];
+      return sum + (total is num ? total.toInt() : 0);
+    });
 
     for (final doc in analisisSnap.docs) {
       final data = doc.data();
-      final interaccionId = data['interaccion_id']?.toString();
-
-      if (interaccionId == null || !interaccionIds.contains(interaccionId)) {
-        continue;
-      }
       final p = data['puntuacion_gramatica'];
 
       if (p is num) {
@@ -136,21 +137,8 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
       }
     }
 
-    final pronunciacionSnap = await FirebaseFirestore.instance
-        .collection('pronunciacion')
-        .where('estudiante_uid', isEqualTo: estudianteUid)
-        .where('curso_id', isEqualTo: widget.cursoId)
-        .get();
-
     for (final doc in pronunciacionSnap.docs) {
-      final data = doc.data();
-      final interaccionId = data['interaccion_id']?.toString();
-
-      if (interaccionId == null || !interaccionIds.contains(interaccionId)) {
-        continue;
-      }
-
-      final p = data['puntuacion_pronunciacion'];
+      final p = doc.data()['puntuacion_pronunciacion'];
 
       if (p is num) {
         sumaPronunciacion += p.toInt();
@@ -158,19 +146,15 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
       }
     }
 
-    final gramatica = cantidadGramatica == 0
-        ? null
-        : (sumaGramatica / cantidadGramatica).round();
-
-    final pronunciacion = cantidadPronunciacion == 0
-        ? null
-        : (sumaPronunciacion / cantidadPronunciacion).round();
-
     return {
       'sesiones': sesiones,
       'respuestas': respuestas,
-      'gramatica': gramatica,
-      'pronunciacion': pronunciacion,
+      'gramatica': cantidadGramatica == 0
+          ? null
+          : (sumaGramatica / cantidadGramatica).round(),
+      'pronunciacion': cantidadPronunciacion == 0
+          ? null
+          : (sumaPronunciacion / cantidadPronunciacion).round(),
       'nivel': nivel,
     };
   }
@@ -310,27 +294,26 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
   }
 
   Widget _buildEstudiantesTab() {
-    final estudiantesFiltrados = estudiantesResumen.where((e) {
+    final filtrados = estudiantesResumen.where((e) {
       final nombre = e['nombre'].toString().toLowerCase();
       final email = e['email'].toString().toLowerCase();
-      final filtro = filtroEstudiante.toLowerCase().trim();
-
+      final filtro = filtroBusqueda.toLowerCase();
       return nombre.contains(filtro) || email.contains(filtro);
     }).toList();
 
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.all(16),
           child: TextField(
             onChanged: (value) {
               setState(() {
-                filtroEstudiante = value;
+                filtroBusqueda = value;
               });
             },
             decoration: InputDecoration(
-              hintText: "Buscar estudiante por nombre o correo",
-              prefixIcon: const Icon(Icons.search, color: Color(0xFFB71C1C)),
+              hintText: "Buscar estudiante...",
+              prefixIcon: const Icon(Icons.search),
               filled: true,
               fillColor: Colors.white,
               border: OutlineInputBorder(
@@ -341,179 +324,150 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
           ),
         ),
         Expanded(
-          child: estudiantesFiltrados.isEmpty
-              ? const Center(
-                  child: Text(
-                    "No se encontraron estudiantes",
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  itemCount: estudiantesFiltrados.length,
-                  itemBuilder: (context, index) {
-                    final e = estudiantesFiltrados[index];
+          child: Scrollbar(
+            thumbVisibility: true,
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              itemCount: filtrados.length,
+              itemBuilder: (context, index) {
+                final e = filtrados[index];
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 14),
-                      padding: const EdgeInsets.all(16),
-                      decoration: _cardDecoration(),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                backgroundColor:
-                                    const Color(0xFF1A237E).withOpacity(0.1),
-                                child: Text(
-                                  e['nombre'].toString().isNotEmpty
-                                      ? e['nombre'].toString()[0].toUpperCase()
-                                      : 'E',
-                                  style: const TextStyle(
-                                    color: Color(0xFF1A237E),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  e['nombre'].toString(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1A237E),
-                                  ),
-                                ),
-                              ),
-                              _nivelChip(e['nivel'].toString()),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            e['email'].toString(),
-                            style: const TextStyle(
-                                fontSize: 11, color: Colors.grey),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "${e['sesiones']} sesiones · ${e['respuestas']} respuestas",
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.grey),
-                          ),
-                          const SizedBox(height: 12),
-                          _barra("Gramática", e['gramatica'],
-                              const Color(0xFF1A237E)),
-                          const SizedBox(height: 10),
-                          _barra("Pronunciación", e['pronunciacion'],
-                              const Color(0xFFB71C1C)),
-                          const SizedBox(height: 12),
-                          Text(
-                            "Recomendación: ${_recomendacion(e)}",
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.black87),
-                          ),
-                        ],
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: _cardDecoration(),
+                  child: ExpansionTile(
+                    title: Text(
+                      e['nombre'].toString(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1A237E),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                    subtitle: Text(
+                      e['email'].toString(),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                    trailing: _nivelChip(e['nivel'].toString()),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "${e['sesiones']} sesiones · ${e['respuestas']} respuestas",
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.grey),
+                            ),
+                            const SizedBox(height: 12),
+                            _barra("Gramática", e['gramatica'],
+                                const Color(0xFF1A237E)),
+                            const SizedBox(height: 10),
+                            _barra("Pronunciación", e['pronunciacion'],
+                                const Color(0xFFB71C1C)),
+                            const SizedBox(height: 12),
+                            Text(
+                              "Recomendación: ${_recomendacion(e)}",
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.black87),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ],
     );
   }
 
   Widget _buildReporteTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Reportes",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1A237E),
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            "Genera reportes generales o individuales.",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 18),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1A237E),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 48),
-            ),
-            onPressed: () async {
-              final pdf = await _generarPdfGeneral();
-              await Printing.layoutPdf(onLayout: (_) async => pdf);
-            },
-            icon: const Icon(Icons.picture_as_pdf),
-            label: const Text("Generar PDF general del curso"),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            "Reporte por estudiante",
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1A237E),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            onChanged: (value) {
-              setState(() {
-                filtroReporte = value;
-              });
-            },
-            decoration: InputDecoration(
-              hintText: "Buscar estudiante para reporte",
-              prefixIcon: const Icon(Icons.search, color: Color(0xFFB71C1C)),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ...estudiantesResumen.where((e) {
-            final nombre = e['nombre'].toString().toLowerCase();
-            final email = e['email'].toString().toLowerCase();
-            final filtro = filtroReporte.toLowerCase().trim();
-            return nombre.contains(filtro) || email.contains(filtro);
-          }).map((e) {
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: _cardDecoration(),
-              child: ListTile(
-                title: Text(
-                  e['nombre'].toString(),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1A237E),
-                  ),
+    final filtrados = estudiantesResumen.where((e) {
+      final nombre = e['nombre'].toString().toLowerCase();
+      final email = e['email'].toString().toLowerCase();
+      final filtro = filtroBusqueda.toLowerCase();
+      return nombre.contains(filtro) || email.contains(filtro);
+    }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A237E),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 48),
                 ),
-                trailing: const Icon(
-                  Icons.picture_as_pdf,
-                  color: Color(0xFFB71C1C),
-                ),
-                onTap: () async {
-                  final pdf = await _generarPdfEstudiante(e);
+                onPressed: () async {
+                  final pdf = await _generarPdfGeneral();
                   await Printing.layoutPdf(onLayout: (_) async => pdf);
                 },
+                icon: const Icon(Icons.picture_as_pdf),
+                label: const Text("Generar PDF general del curso"),
               ),
-            );
-          }),
-        ],
-      ),
+              const SizedBox(height: 12),
+              TextField(
+                onChanged: (value) {
+                  setState(() {
+                    filtroBusqueda = value;
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: "Buscar estudiante...",
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Scrollbar(
+            thumbVisibility: true,
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              itemCount: filtrados.length,
+              itemBuilder: (context, index) {
+                final e = filtrados[index];
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: _cardDecoration(),
+                  child: ListTile(
+                    title: Text(
+                      e['nombre'].toString(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1A237E),
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.picture_as_pdf,
+                      color: Color(0xFFB71C1C),
+                    ),
+                    onTap: () async {
+                      final pdf = await _generarPdfEstudiante(e);
+                      await Printing.layoutPdf(onLayout: (_) async => pdf);
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -691,53 +645,61 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
 
   Future<Uint8List> _generarPdfGeneral() async {
     final pdf = pw.Document();
+    final fecha = DateTime.now();
 
     pdf.addPage(
-      pw.Page(
-        build: (context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                "Reporte general del curso",
-                style: pw.TextStyle(
-                  fontSize: 22,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text("Curso: ${widget.nombreCurso}"),
-              pw.SizedBox(height: 16),
-              pw.Text("Total estudiantes: ${estudiantesResumen.length}"),
-              pw.Text("Promedio gramática: ${_promedio('gramatica')}%"),
-              pw.Text(
-                "Promedio pronunciación: ${_promedio('pronunciacion')}%",
-              ),
-              pw.Text("Mejor rendimiento: ${_mejorEstudiante()}"),
-              pw.SizedBox(height: 20),
-              pw.TableHelper.fromTextArray(
-                headers: [
-                  "Estudiante",
-                  "Sesiones",
-                  "Gramática",
-                  "Pronunciación",
-                  "Nivel",
-                ],
-                data: estudiantesResumen.map((e) {
-                  return [
-                    e['nombre'].toString(),
-                    e['sesiones'].toString(),
-                    e['gramatica'] == null ? "Pendiente" : "${e['gramatica']}%",
-                    e['pronunciacion'] == null
-                        ? "Pendiente"
-                        : "${e['pronunciacion']}%",
-                    e['nivel'].toString(),
-                  ];
-                }).toList(),
-              ),
+      pw.MultiPage(
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) => [
+          _pdfHeader("REPORTE GENERAL DEL CURSO"),
+          pw.SizedBox(height: 16),
+          _infoBox([
+            ["Curso", widget.nombreCurso],
+            [
+              "Fecha de generación",
+              "${fecha.day}/${fecha.month}/${fecha.year}"
             ],
-          );
-        },
+            ["Total estudiantes", estudiantesResumen.length.toString()],
+            ["Promedio gramática", "${_promedio('gramatica')}%"],
+            ["Promedio pronunciación", "${_promedio('pronunciacion')}%"],
+            ["Mejor rendimiento", _mejorEstudiante()],
+          ]),
+          pw.SizedBox(height: 18),
+          _sectionTitlePdf("Resultados por estudiante"),
+          pw.TableHelper.fromTextArray(
+            headerDecoration:
+                const pw.BoxDecoration(color: PdfColors.indigo900),
+            headerStyle: pw.TextStyle(
+              color: PdfColors.white,
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 9,
+            ),
+            cellStyle: const pw.TextStyle(fontSize: 8),
+            cellAlignment: pw.Alignment.centerLeft,
+            cellPadding: const pw.EdgeInsets.all(6),
+            border: pw.TableBorder.all(color: PdfColors.grey300),
+            headers: [
+              "Estudiante",
+              "Sesiones",
+              "Gramática",
+              "Pronunciación",
+              "Nivel"
+            ],
+            data: estudiantesResumen.map((e) {
+              return [
+                e['nombre'].toString(),
+                e['sesiones'].toString(),
+                e['gramatica'] == null ? "Pendiente" : "${e['gramatica']}%",
+                e['pronunciacion'] == null
+                    ? "Pendiente"
+                    : "${e['pronunciacion']}%",
+                e['nivel'].toString(),
+              ];
+            }).toList(),
+          ),
+          pw.SizedBox(height: 18),
+          _footerPdf(),
+        ],
       ),
     );
 
@@ -746,43 +708,178 @@ class _ProgresoEstudiantesScreenState extends State<ProgresoEstudiantesScreen>
 
   Future<Uint8List> _generarPdfEstudiante(Map<String, dynamic> e) async {
     final pdf = pw.Document();
+    final fecha = DateTime.now();
 
     pdf.addPage(
-      pw.Page(
-        build: (context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                "Reporte individual del estudiante",
-                style: pw.TextStyle(
-                  fontSize: 22,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text("Curso: ${widget.nombreCurso}"),
-              pw.Text("Estudiante: ${e['nombre']}"),
-              pw.Text("Email: ${e['email']}"),
-              pw.SizedBox(height: 16),
-              pw.Text("Sesiones realizadas: ${e['sesiones']}"),
-              pw.Text("Respuestas registradas: ${e['respuestas']}"),
-              pw.Text(
-                "Gramática: ${e['gramatica'] == null ? 'Pendiente' : '${e['gramatica']}%'}",
-              ),
-              pw.Text(
-                "Pronunciación: ${e['pronunciacion'] == null ? 'Pendiente' : '${e['pronunciacion']}%'}",
-              ),
-              pw.Text("Nivel detectado: ${e['nivel']}"),
-              pw.SizedBox(height: 16),
-              pw.Text("Recomendación: ${_recomendacion(e)}"),
+      pw.MultiPage(
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) => [
+          _pdfHeader("REPORTE INDIVIDUAL DEL ESTUDIANTE"),
+          pw.SizedBox(height: 16),
+          _infoBox([
+            ["Estudiante", e['nombre'].toString()],
+            ["Correo", e['email'].toString()],
+            ["Curso", widget.nombreCurso],
+            [
+              "Fecha de generación",
+              "${fecha.day}/${fecha.month}/${fecha.year}"
             ],
-          );
-        },
+            ["Nivel detectado", e['nivel'].toString()],
+            ["Sesiones realizadas", e['sesiones'].toString()],
+            ["Respuestas registradas", e['respuestas'].toString()],
+          ]),
+          pw.SizedBox(height: 18),
+          _sectionTitlePdf("Desempeño"),
+          _scoreRowPdf("Gramática", e['gramatica'], PdfColors.indigo900),
+          pw.SizedBox(height: 10),
+          _scoreRowPdf("Pronunciación", e['pronunciacion'], PdfColors.red900),
+          pw.SizedBox(height: 18),
+          _sectionTitlePdf("Recomendación"),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey100,
+              borderRadius: pw.BorderRadius.circular(8),
+              border: pw.Border.all(color: PdfColors.grey300),
+            ),
+            child: pw.Text(
+              _recomendacion(e),
+              style: const pw.TextStyle(fontSize: 11),
+            ),
+          ),
+          pw.SizedBox(height: 18),
+          _footerPdf(),
+        ],
       ),
     );
 
     return pdf.save();
+  }
+
+  pw.Widget _pdfHeader(String titulo) {
+    return pw.Column(
+      children: [
+        pw.Text(
+          "UNIDAD EDUCATIVA INTERCULTURAL BILINGÜE SURUPUCYU",
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.SizedBox(height: 4),
+        pw.Text(
+          "Aplicación móvil para el fortalecimiento de la destreza Speaking",
+          textAlign: pw.TextAlign.center,
+          style: const pw.TextStyle(fontSize: 10),
+        ),
+        pw.SizedBox(height: 8),
+        pw.Container(height: 2, color: PdfColors.indigo900),
+        pw.SizedBox(height: 10),
+        pw.Text(
+          titulo,
+          textAlign: pw.TextAlign.center,
+          style: pw.TextStyle(
+            fontSize: 13,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColors.red900,
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _sectionTitlePdf(String title) {
+    return pw.Text(
+      title,
+      style: pw.TextStyle(
+        fontSize: 12,
+        fontWeight: pw.FontWeight.bold,
+        color: PdfColors.indigo900,
+      ),
+    );
+  }
+
+  pw.Widget _infoBox(List<List<String>> rows) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(12),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey300),
+        borderRadius: pw.BorderRadius.circular(8),
+      ),
+      child: pw.Table(
+        columnWidths: {
+          0: const pw.FlexColumnWidth(1.4),
+          1: const pw.FlexColumnWidth(2.4),
+        },
+        children: rows.map((r) {
+          return pw.TableRow(
+            children: [
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                child: pw.Text(
+                  r[0],
+                  style: pw.TextStyle(
+                      fontWeight: pw.FontWeight.bold, fontSize: 10),
+                ),
+              ),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                child: pw.Text(r[1], style: const pw.TextStyle(fontSize: 10)),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  pw.Widget _scoreRowPdf(String label, dynamic valor, PdfColor color) {
+    final numero = valor is num ? valor.toInt() : 0;
+    final porcentaje = numero.clamp(0, 100);
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text(valor == null ? "Pendiente" : "$porcentaje%"),
+          ],
+        ),
+        pw.SizedBox(height: 5),
+        pw.Container(
+          height: 10,
+          decoration: pw.BoxDecoration(
+            color: PdfColors.grey200,
+            borderRadius: pw.BorderRadius.circular(5),
+          ),
+          child: pw.Row(
+            children: [
+              pw.Container(
+                width: porcentaje * 4.5,
+                decoration: pw.BoxDecoration(
+                  color: color,
+                  borderRadius: pw.BorderRadius.circular(5),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _footerPdf() {
+    return pw.Column(
+      children: [
+        pw.Divider(color: PdfColors.grey400),
+        pw.Text(
+          "Reporte generado automáticamente por el sistema de asistencia virtual para Speaking.",
+          textAlign: pw.TextAlign.center,
+          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+        ),
+      ],
+    );
   }
 
   @override
