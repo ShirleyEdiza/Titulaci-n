@@ -127,20 +127,7 @@ class _HomeDocenteState extends State<HomeDocente> {
           ),
         ],
       ),
-      body: _selectedIndex == 0 ? _buildPanelTab() : _buildEstudiantesTab(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
-        selectedItemColor: const Color(0xFFB71C1C),
-        unselectedItemColor: Colors.grey,
-        selectedLabelStyle:
-            const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Panel"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.people), label: "Estudiantes"),
-        ],
-      ),
+      body: _buildPanelTab(),
     );
   }
 
@@ -189,9 +176,7 @@ class _HomeDocenteState extends State<HomeDocente> {
                         _buildStatBanner(
                             "$totalCursos", "Cursos", Icons.class_),
                         const SizedBox(width: 20),
-                        _buildStatBanner("0", "Estudiantes", Icons.people),
-                        const SizedBox(width: 20),
-                        _buildStatBanner("0", "Sesiones hoy", Icons.today),
+                        _EstudiantesTotalBanner(docenteUid: uid),
                       ],
                     );
                   },
@@ -231,52 +216,58 @@ class _HomeDocenteState extends State<HomeDocente> {
                 );
               }
 
+              final cursos = snapshot.data!.docs;
+
+              final anios = ['Primero', 'Segundo', 'Tercero'];
+
               return Column(
-                children: snapshot.data!.docs.map((doc) {
-                  var data = doc.data() as Map<String, dynamic>;
-                  return _CursoDocenteCard(
-                    cursoId: doc.id,
-                    nombre: data['nombre'] ?? '',
-                    paralelo: data['paralelo'] ?? '',
-                    nivel: data['nivel'] ?? 'A1',
-                    anio: data['anio'] ?? '',
-                    codigo: data['codigo_acceso'] ?? '',
+                children: anios.map((anio) {
+                  final cursosDelAnio = cursos.where((doc) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    return data['anio'] == anio;
+                  }).toList();
+
+                  if (cursosDelAnio.isEmpty) return const SizedBox();
+
+                  final color = anio == 'Primero'
+                      ? const Color(0xFF1A237E)
+                      : anio == 'Segundo'
+                          ? const Color(0xFFB71C1C)
+                          : const Color(0xFF4A148C);
+
+                  final titulo = anio == 'Primero'
+                      ? '1ro Bachillerato'
+                      : anio == 'Segundo'
+                          ? '2do Bachillerato'
+                          : '3ro Bachillerato';
+
+                  return ExpansionTile(
+                    initiallyExpanded: true,
+                    tilePadding: EdgeInsets.zero,
+                    title: Text(
+                      titulo,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                    children: cursosDelAnio.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+
+                      return _CursoDocenteCard(
+                        cursoId: doc.id,
+                        nombre: data['nombre'] ?? '',
+                        tipo: data['tipo'] ?? '',
+                        nivel: data['nivel'] ?? 'A1',
+                        anio: data['anio'] ?? '',
+                        codigo: data['codigo_acceso'] ?? '',
+                      );
+                    }).toList(),
                   );
                 }).toList(),
               );
             },
-          ),
-
-          const SizedBox(height: 20),
-
-          // Acciones rápidas
-          const Text("Acciones rápidas",
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1A237E))),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(
-                child: _buildAccionCard(
-                  "Ver Progreso",
-                  Icons.bar_chart,
-                  const Color(0xFF1A237E),
-                  () => setState(() => _selectedIndex = 1),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildAccionCard(
-                  "Generar Reporte",
-                  Icons.picture_as_pdf,
-                  const Color(0xFFB71C1C),
-                  () => setState(() => _selectedIndex = 1),
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -295,6 +286,60 @@ class _HomeDocenteState extends State<HomeDocente> {
             style: const TextStyle(fontSize: 11, color: Colors.white70)),
       ],
     );
+  }
+
+  Widget _EstudiantesTotalBanner({required String docenteUid}) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('cursos')
+          .where('docente_uid', isEqualTo: docenteUid)
+          .where('activo', isEqualTo: true)
+          .snapshots(),
+      builder: (context, cursosSnap) {
+        if (!cursosSnap.hasData) {
+          return _buildStatBanner("0", "Estudiantes", Icons.people);
+        }
+
+        final cursosIds = cursosSnap.data!.docs.map((doc) => doc.id).toList();
+
+        if (cursosIds.isEmpty) {
+          return _buildStatBanner("0", "Estudiantes", Icons.people);
+        }
+
+        return FutureBuilder<int>(
+          future: _contarEstudiantesDocente(cursosIds),
+          builder: (context, snap) {
+            return _buildStatBanner(
+              "${snap.data ?? 0}",
+              "Estudiantes",
+              Icons.people,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<int> _contarEstudiantesDocente(List<String> cursosIds) async {
+    final Set<String> estudiantesUnicos = {};
+
+    for (final cursoId in cursosIds) {
+      final snap = await FirebaseFirestore.instance
+          .collection('matriculas')
+          .where('curso_id', isEqualTo: cursoId)
+          .where('activo', isEqualTo: true)
+          .get();
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final estudianteUid = data['estudiante_uid'] ?? '';
+        if (estudianteUid.toString().isNotEmpty) {
+          estudiantesUnicos.add(estudianteUid);
+        }
+      }
+    }
+
+    return estudiantesUnicos.length;
   }
 
   Widget _buildAccionCard(
@@ -389,140 +434,100 @@ class _HomeDocenteState extends State<HomeDocente> {
 
 // ─── CARD CURSO DEL DOCENTE ───────────────────────────────────
 class _CursoDocenteCard extends StatelessWidget {
-  final String cursoId, nombre, paralelo, nivel, anio, codigo;
+  final String cursoId, nombre, tipo, nivel, anio, codigo;
 
   const _CursoDocenteCard({
     required this.cursoId,
     required this.nombre,
-    required this.paralelo,
+    required this.tipo,
     required this.nivel,
     required this.anio,
     required this.codigo,
   });
 
-  Color get _color => anio == 'Primero'
-      ? const Color(0xFF1A237E)
-      : anio == 'Segundo'
-          ? const Color(0xFFB71C1C)
-          : const Color(0xFF4A148C);
+  Color get _color {
+    if (anio == 'Primero') return const Color(0xFF1A237E);
+    if (anio == 'Segundo') return const Color(0xFFB71C1C);
+    return const Color(0xFF4A148C);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
+    final titulo = tipo.isNotEmpty ? tipo : nombre;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProgresoEstudiantesScreen(
+              cursoId: cursoId,
+              nombreCurso: nombre,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
               color: Colors.black.withOpacity(0.06),
               blurRadius: 10,
-              offset: const Offset(0, 4)),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: _color.withOpacity(0.07),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
+              offset: const Offset(0, 4),
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: _color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.class_, color: _color, size: 22),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 45,
+                height: 45,
+                decoration: BoxDecoration(
+                  color: _color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(paralelo.isNotEmpty ? paralelo : nombre,
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: _color)),
-                      Text(nombre,
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.grey)),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text("Nivel $nivel",
+                child: Icon(Icons.bookmark, color: _color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      titulo,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontSize: 11,
-                          color: _color,
-                          fontWeight: FontWeight.w600)),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Estudiantes inscritos
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('matriculas')
-                      .where('curso_id', isEqualTo: cursoId)
-                      .where('activo', isEqualTo: true)
-                      .snapshots(),
-                  builder: (context, snap) {
-                    int total = snap.data?.docs.length ?? 0;
-                    return Row(
-                      children: [
-                        Icon(Icons.people,
-                            size: 16, color: Colors.grey.shade500),
-                        const SizedBox(width: 4),
-                        Text("$total estudiantes",
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.grey)),
-                      ],
-                    );
-                  },
-                ),
-                // Ver progreso
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ProgresoEstudiantesScreen(
-                          cursoId: cursoId,
-                          nombreCurso: nombre,
-                        ),
+                        color: _color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.bar_chart,
-                      size: 16, color: Color(0xFFB71C1C)),
-                  label: const Text("Ver progreso",
-                      style: TextStyle(
-                          color: Color(0xFFB71C1C),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Nivel: $nivel',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    Text(
+                      'Código: $codigo',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const Icon(
+                Icons.more_vert,
+                color: Colors.black87,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

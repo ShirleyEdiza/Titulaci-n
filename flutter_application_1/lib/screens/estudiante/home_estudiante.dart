@@ -1027,8 +1027,16 @@ class _CursoInscritoCard extends StatelessWidget {
   final String cursoId;
   final String estudianteUid;
 
-  const _CursoInscritoCard(
-      {required this.cursoId, required this.estudianteUid});
+  const _CursoInscritoCard({
+    required this.cursoId,
+    required this.estudianteUid,
+  });
+
+  Color _colorPorAnio(String anio) {
+    if (anio == 'Primero') return const Color(0xFF1A237E);
+    if (anio == 'Segundo') return const Color(0xFFB71C1C);
+    return const Color(0xFF4A148C);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1039,17 +1047,16 @@ class _CursoInscritoCard extends StatelessWidget {
         if (!snapshot.hasData) return const SizedBox();
         if (!snapshot.data!.exists) return const SizedBox();
 
-        var data = snapshot.data!.data() as Map<String, dynamic>;
-        String nombre = data['nombre'] ?? '';
-        String paralelo = data['paralelo'] ?? '';
-        String nivel = data['nivel'] ?? 'A1';
-        String anio = data['anio'] ?? '';
+        final data = snapshot.data!.data() as Map<String, dynamic>;
 
-        Color color = anio == 'Primero'
-            ? const Color(0xFF1A237E)
-            : anio == 'Segundo'
-                ? const Color(0xFFB71C1C)
-                : const Color(0xFF4A148C);
+        final nombre = data['nombre'] ?? '';
+        final tipo = data['tipo'] ?? '';
+        final codigo = data['codigo_acceso'] ?? '';
+        final nivel = data['nivel'] ?? '';
+        final anio = data['anio'] ?? '';
+
+        final color = _colorPorAnio(anio);
+        final titulo = tipo.toString().isNotEmpty ? tipo : nombre;
 
         return GestureDetector(
           onTap: () {
@@ -1065,82 +1072,94 @@ class _CursoInscritoCard extends StatelessWidget {
           },
           child: Container(
             margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: color.withOpacity(0.3), width: 1.5),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3)),
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
               ],
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 45,
+                    height: 45,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.class_, color: color),
                   ),
-                  child: Icon(Icons.class_, color: color, size: 24),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        paralelo.isNotEmpty ? paralelo : nombre,
-                        style: TextStyle(
-                            fontSize: 14,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          titulo,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: color,
                             fontWeight: FontWeight.bold,
-                            color: color),
-                      ),
-                      Text(nombre,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Nivel: $nivel',
                           style: const TextStyle(
-                              fontSize: 11, color: Colors.grey)),
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        Text(
+                          'Código: $codigo',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    children: [
+                      const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 14,
+                        color: Colors.grey,
+                      ),
+                      const SizedBox(height: 6),
                       Container(
-                        margin: const EdgeInsets.only(top: 4),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
+                          color: Colors.green.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: Text("Nivel $nivel",
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: color,
-                                fontWeight: FontWeight.w600)),
+                        child: const Text(
+                          "Inscrito",
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                Column(
-                  children: [
-                    const Icon(Icons.arrow_forward_ios,
-                        size: 14, color: Colors.grey),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text("Inscrito",
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

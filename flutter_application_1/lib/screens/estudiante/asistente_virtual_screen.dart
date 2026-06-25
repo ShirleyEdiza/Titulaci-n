@@ -61,6 +61,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   String nombreIdioma = "English";
   String nombreUsuario = "estudiante";
   bool procesandoRespuesta = false;
+  bool reinicioAutomaticoMicrofono = false;
 
   List<String> historialUsuario = [];
   List<String> historialAsistente = [];
@@ -131,7 +132,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     await _tts.setLanguage("en-US");
     await _tts.setSpeechRate(0.45);
     await _tts.setPitch(1.0);
-    await _tts.awaitSpeakCompletion(false);
+    await _tts.awaitSpeakCompletion(true);
   }
 
   Future<void> iniciar() async {
@@ -165,7 +166,10 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
 
     try {
-      await _speech.stop();
+      if (_speech.isListening) {
+        await _speech.stop();
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
 
       final disponible = await _speech.initialize(
         onStatus: (status) {
@@ -294,6 +298,7 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
   }
 
   Future<void> salirSinGuardar() async {
+    reinicioAutomaticoMicrofono = true;
     iniciado = false;
     guardando = true;
     escuchando = false;
@@ -440,13 +445,25 @@ class _AsistenteVirtualScreenState extends State<AsistenteVirtualScreen>
     await _tts.speak(respuesta);
 
     if (!mounted) return;
+
     setState(() {
       procesandoRespuesta = false;
+      escuchando = false;
+      estadoMicrofono = "Habla con el asistente";
     });
+
+    if (iniciado && !guardando) {
+      await Future.delayed(const Duration(milliseconds: 700));
+
+      if (!mounted || !iniciado || guardando || procesandoRespuesta) return;
+
+      await _iniciarEscuchaContinua();
+    }
   }
 
   Future<void> terminar() async {
     if (!mounted) return;
+    reinicioAutomaticoMicrofono = true;
 
     final interaccionIdFinal = interaccionId;
     final uid = FirebaseAuth.instance.currentUser?.uid ?? "sin_uid";
